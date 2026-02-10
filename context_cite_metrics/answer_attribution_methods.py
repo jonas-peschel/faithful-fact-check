@@ -40,13 +40,17 @@ def save_json(filepath, content):
 
 def load_data(dataset_name, n_samples, seed=0):
 
+    assert n_samples <= 1000, "Max. 1000 samples"
+
     # Dataset 1: CNN Daily Mail
     if dataset_name == "cnn_daily_mail":
         dataset = load_dataset("abisee/cnn_dailymail", "3.0.0", split="train")
 
-        # sample
+        # sample max 1000 samples and take the first n_samples
+        # that way, results from different runs with different n_samples will use the same datapoints
         np.random.seed(seed)
-        idxs = np.random.choice(len(dataset), n_samples, replace=False)
+        idxs = np.random.choice(len(dataset), 1000, replace=False)
+        idxs = idxs[:n_samples]
         dataset_sampled = dataset.select(idxs)
 
     return dataset_sampled
