@@ -13,7 +13,6 @@ from tqdm.auto import tqdm
 import nltk
 from nltk import sent_tokenize
 nltk.download("punkt_tab")
-# from context_cite.utils import _get_response_logit_probs
 
 def parse_args():
 
@@ -115,7 +114,7 @@ def compute_attributions_context_cite(cc: ContextCiter, res: dict):
     for start_idx, end_idx in zip(start_idxs, end_idxs):
 
         attr_scores_sent = cc.get_attributions(start_idx=start_idx, end_idx=end_idx, as_dataframe=False)
-        attr_scores.append(attr_scores_sent)
+        attr_scores.append(attr_scores_sent.tolist())   # convert to list for json serialization
 
     #--- write results to results dict ---#
     if "query" not in res.keys():
