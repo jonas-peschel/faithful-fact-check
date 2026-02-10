@@ -150,11 +150,14 @@ def main(config=None):
     if not results_path.exists():
 
         # make new results file and save metadata
-        results_path.mkdir(parents=True, exist_ok=True)
-        results = load_json(results_path)
+        results_path.parent.mkdir(parents=True, exist_ok=True)
+        results_path.touch()
+        results = {}
 
-        results["dataset"] = config.dataset
-        results["model"] = config.model_name
+        results["metadata"] = {
+            "dataset": config.dataset,
+            "model": config.model_name,
+        }
         results["results"] = []
     else:
 
@@ -162,8 +165,8 @@ def main(config=None):
         results = load_json(results_path)
 
         # check that the old experiment used the same dataset and model 
-        assert results["dataset"] == config.dataset, "Existing results should come from the same dataset as new results to compute."
-        assert results["model"] == config.model_name, "Existing results should use the same language model as new results to compute."
+        assert results["metadata"]["dataset"] == config.dataset, "Existing results should come from the same dataset as new results to compute."
+        assert results["metadata"]["model"] == config.model_name, "Existing results should use the same language model as new results to compute."
 
 
     load_dotenv()
