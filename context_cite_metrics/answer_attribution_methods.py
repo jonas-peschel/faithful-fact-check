@@ -236,6 +236,11 @@ def main(config=None):
                 generate_kwargs = CC_GENERATE_KWARGS,
             )
 
+            # check that the same answer is generated if there are previous results
+            answer = cc.response
+            if "model_answer" in data_point_results.keys():
+                assert answer == data_point_results["model_answer"], "Model answer must be always identical."
+
         # perform remaining methods for answer attribution
         # TODO
 

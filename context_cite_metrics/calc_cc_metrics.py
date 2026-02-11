@@ -1,0 +1,263 @@
+import argparse
+import os
+import json
+from pathlib import Path
+from datasets import load_dataset, Dataset
+import torch
+import numpy as np 
+from dotenv import load_dotenv 
+from huggingface_hub import login
+from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
+from context_cite import ContextCiter
+from context_cite.utils import _get_response_logit_probs, aggregate_logit_probs
+from tqdm.auto import tqdm
+import nltk
+from nltk import sent_tokenize
+nltk.download("punkt_tab")
+from typing import List 
+from numpy.typing import NDArray
+
+def parse_args():
+
+    parser = argparse.ArgumentParser(description="Calculate top-k log-prob drop (k=1,3,5) and linear datamodeling score for different attribution methods.") 
+    parser.add_argument("--dataset", type=str, choices=["cnn_daily_mail"], default=None, required=True, help="Which dataset to use.")
+    parser.add_argument("--model_name", type=str, choices=["meta-llama/Llama-3.1-8B-Instruct"], default="meta-llama/Llama-3.1-8B-Instruct", help="Huggingface name of model to use.")
+    parser.add_argument("--cc_num_ablations", type=int, nargs="+", choices=[32, 64, 128, 256], help="How many ablations to use if ContextCite was used as attribution method.")
+    parser.add_argument("--results_path", type=str, default="Results/results.json", help="Path to the file where attribution scores and experiment results (metrics) are stored.")
+    parser.add_argument("--n_samples", type=int, default=20, help="For how many data points to compute the metrics.")
+
+    return parser.parse_args()
+
+def load_json(filepath):
+
+    with open(filepath) as f:
+        data = json.load(f)
+
+    return data
+
+def save_json(filepath, content):
+
+    with open(filepath, "w") as f:
+        json.dump(content, f, indent=4)
+
+def load_data(dataset_name, n_samples, seed=0):
+
+    assert n_samples <= 1000, "Max. 1000 samples"
+
+    # Dataset 1: CNN Daily Mail
+    if dataset_name == "cnn_daily_mail":
+        dataset = load_dataset("abisee/cnn_dailymail", "3.0.0", split="train")
+
+        # sample max 1000 samples and take the first n_samples
+        # that way, results from different runs with different n_samples will use the same datapoints
+        np.random.seed(seed)
+        idxs = np.random.choice(len(dataset), 1000, replace=False)
+        idxs = idxs[:n_samples]
+        dataset_sampled = dataset.select(idxs)
+
+    return dataset_sampled
+
+def load_datapoint(datapoint, dataset_name):
+    """Load context and query from a datapoint depending on the given dataset."""
+
+    # Dataset 1: CNN Daily Mail
+    if dataset_name == "cnn_daily_mail":
+
+        context = datapoint["article"]
+        query = "Please summarize the article in up to three sentences."
+
+    return context, query
+
+def load_cc_prompt_template(dataset_name):
+
+    # Dataset 1: CNN Daily Mail
+    if dataset_name == "cnn_daily_mail":
+        return "Context: {context}\n\nQuery: {query}"
+
+
+def load_model(model_name, is_quantize):
+
+    quantization_config = BitsAndBytesConfig(
+        load_in_4bit=True,
+        bnb_4bit_compute_dtype=torch.float16,
+        bnb_4bit_use_double_quant=True,
+        bnb_4bit_quant_type="nf4"
+    ) if is_quantize else None
+
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    model = AutoModelForCausalLM.from_pretrained(model_name, device_map="auto", torch_dtype=torch.float16, quantization_config=quantization_config) 
+    device = model.device
+
+    return model, tokenizer, device
+
+def split_text(text):
+    """Split model response into sentences and return sentences and corresponding start indices."""
+
+    sentences = sent_tokenize(text)
+
+    prev_end_idx = 0
+    start_idxs, end_idxs = [], []
+    for sent in sentences:
+
+        start_idx = text.find(sent, prev_end_idx)
+        start_idxs.append(start_idx)
+        prev_end_idx = start_idx + len(sent)
+        end_idxs.append(prev_end_idx)
+
+    return sentences, start_idxs, end_idxs
+
+#--- Metric Functions ---#
+def calc_top_k_log_prob_drop(cc: ContextCiter, res: dict):
+    """
+    Calculate top-k log-probability drop metric for a single data point.
+    Calculate metric each for k=1,3,5 and for each sentence in the answer.
+    """
+
+    def create_mask(attr_scores: List, k: int) -> NDArray[np.bool_]:
+        """Create a boolean mask based on given attribution scores and number of top-sources to ablate (k)."""
+
+        mask = np.ones(len(attr_scores), dtype=np.bool_)
+
+        if k == 0:  # full mask without ablations
+            pass
+        
+        else:
+            top_k_idxs = np.argsort(attr_scores)[-k:]
+            mask[top_k_idxs] = False
+
+        return mask
+    
+    def create_dataset(cc: ContextCiter, masks: List[NDArray[np.bool_]]):
+        """
+        Create "dataset" with input tokens and output tokens (labels) for different ablations.
+        Based on ContextCite utils._create_regression_dataset function.
+        """
+
+        data_dict = {
+            "input_ids": [],
+            "attention_masks": [],
+            "labels": [],
+        }
+
+        response_ids = cc._response_ids # token indices of the complete response
+        for mask in masks:
+            prompt_ids = cc._get_prompt_ids(mask=mask)  # token indices of the prompt with sources ablated according to the mask
+            input_ids = prompt_ids + response_ids
+
+            data_dict["input_ids"].append(input_ids)
+            data_dict["attention_mask"].append([1] * len(input_ids))
+            data_dict["labels"].append([-100] * len(prompt_ids) + response_ids) # label only for response part
+
+        return Dataset.from_dict(data_dict)
+    
+    # how many sources to ablate
+    Ks = [0,1,3,5]
+
+    answer = cc.response
+    sentences, start_idxs, end_idxs = split_text(answer)
+
+    # loop through attribution methods and sentences, then for each sentence compute
+    # top-k log-prob drop for k=1,3,5
+    for attr_method in res["methods"].keys():
+        for sent_idx, start_idx, end_idx in zip(range(len(sentences)), start_idxs, end_idxs):
+
+            # 0. load attribution scores & prepare results dict
+            attr_scores = res["methods"][attr_method]["attr_scores"][sent_idx] 
+
+            if "metrics" not in res["methods"][attr_method].keys():
+                res["methods"][attr_method]["metrics"] = {}
+            if "top_k_drop" not in res["methods"][attr_method]["metrics"].keys():
+                res["methods"][attr_method]["metrics"]["top_k_drop"] = {}
+            for k in Ks[1:]:
+                res["methods"][attr_method]["metrics"]["top_k_drop"][f"top_{k}_drop"] = []  # for each method and k, there is a list of drops (drop for each sentence)
+
+            # 1. create masks for k=1,3,5 and create one full mask where no sources are ablated (k=0) for computing the difference 
+            masks = []
+            for k in Ks:
+                masks.append(create_mask(attr_scores, k))
+
+            # 2. create "dataset" with input tokens and output tokens (labels) for different ablations
+            dataset = create_dataset(cc, masks)
+
+            # 3. calculate logit probabilities for all answer tokens for each of the context ablations
+            # shape: (n_masks, n_answer_tokens)
+            logit_probs = _get_response_logit_probs(
+                dataset, cc.model, cc.tokenizer, len(cc._response_ids), cc.batch_size
+            )
+
+            # 4. aggregate logit_probs and convert to log_prob for the current sentence
+            ids_start_idx, ids_end_idx = cc._indices_to_token_indices(start_idx, end_idx)
+            logit_probs_sent = logit_probs[:, ids_start_idx:ids_end_idx]
+
+            log_probs = []  # final log probabilites for the answer with context ablations according to k=0,1,3,5
+            for i in range(len(Ks)):
+                log_probs.append(aggregate_logit_probs(logit_probs_sent[i:i+1,:], output_type="log_prob"))
+
+            # 5. compute differences with full context, normalize the result by number of answer tokens (in the sentence)
+            n_answer_tokens_sent = logit_probs_sent.shape[1]
+            for i,k in enumerate(Ks[1:], start=1):
+                diff = (log_probs[0] - log_probs[i]) / n_answer_tokens_sent # diff full_context - ablated_context
+
+                # write result to the results dict (append to list for sentences)
+                res["methods"][attr_method]["metrics"]["top_k_drop"][f"top_{k}_drop"].append(diff.item())
+                
+    return res
+#--- Metric Functions ---#
+
+
+def main(config=None):
+
+    if config is None:
+        config = parse_args()
+
+    # load results file
+    results_path = Path(config.results_path)
+    results = load_json(results_path)
+
+    # check to use same dataset and model as for computing the attribution scores
+    assert results["metadata"]["dataset"] == config.dataset, "Existing results should come from the same dataset as new results to compute."
+    assert results["metadata"]["model"] == config.model_name, "Existing results should use the same language model as new results to compute."
+
+    load_dotenv()
+    HF_TOKEN = os.getenv("HF_TOKEN")
+
+    # log into huggingface
+    login(token=HF_TOKEN)
+
+    # load data and model
+    model, tokenizer, device = load_model(config.model_name, True) # load veracity classification and justification model (Llama-8B-Instruct)
+    data = load_data(config.dataset, n_samples=config.n_samples, seed=0)
+
+    CC_PROMPT_TEMPLATE = load_cc_prompt_template(config.dataset)
+    CC_GENERATE_KWARGS = {"do_sample": False, "max_new_tokens": 512}
+
+    for idx, data_point in tqdm(enumerate(data), total=len(data)):
+
+        data_point_results = results["results"][idx]
+        context, query = load_datapoint(data_point, config.dataset) # depends on the given dataset
+
+        # instantiate ContextCiter for probability calculations
+        cc = ContextCiter(
+            model = model,
+            tokenizer = tokenizer,
+            context = context,
+            query = query,
+            prompt_template = CC_PROMPT_TEMPLATE,
+            generate_kwargs = CC_GENERATE_KWARGS,
+        )
+
+        # check that the same answer was generated
+        answer = cc.response
+        assert answer == data_point_results["model_answer"], "Model answer must be always identical."
+
+        # calculate top-k log-probability drop metric
+        data_point_results = calc_top_k_log_prob_drop(cc, data_point_results)
+
+        # add results for the data point to the results
+        results["results"][idx] = data_point_results
+
+    # save results to result file
+    save_json(results_path, results)
+
+if __name__ == "__main__":
+    main()
