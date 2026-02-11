@@ -150,7 +150,7 @@ def calc_top_k_log_prob_drop(cc: ContextCiter, res: dict):
         return Dataset.from_dict(data_dict)
     
     # how many sources to ablate
-    Ks = [0,1,3,5]
+    ks = [0,1,3,5]
 
     answer = cc.response
     sentences, start_idxs, end_idxs = split_text(answer)
@@ -164,7 +164,7 @@ def calc_top_k_log_prob_drop(cc: ContextCiter, res: dict):
             res["methods"][attr_method]["metrics"] = {}
         if "top_k_drop" not in res["methods"][attr_method]["metrics"].keys():
             res["methods"][attr_method]["metrics"]["top_k_drop"] = {}
-        for k in Ks[1:]:
+        for k in ks[1:]:
             res["methods"][attr_method]["metrics"]["top_k_drop"][f"top_{k}_drop"] = []  # for each method and k, there is a list of drops (drop for each sentence)
 
 
@@ -175,7 +175,7 @@ def calc_top_k_log_prob_drop(cc: ContextCiter, res: dict):
 
             # 1. create masks for k=1,3,5 and create one full mask where no sources are ablated (k=0) for computing the difference 
             masks = []
-            for k in Ks:
+            for k in ks:
                 masks.append(create_mask(attr_scores, k))
 
             # 2. create "dataset" with input tokens and output tokens (labels) for different ablations
@@ -192,12 +192,12 @@ def calc_top_k_log_prob_drop(cc: ContextCiter, res: dict):
             logit_probs_sent = logit_probs[:, ids_start_idx:ids_end_idx]
 
             log_probs = []  # final log probabilites for the answer with context ablations according to k=0,1,3,5
-            for i in range(len(Ks)):
+            for i in range(len(ks)):
                 log_probs.append(aggregate_logit_probs(logit_probs_sent[i:i+1,:], output_type="log_prob"))
 
             # 5. compute differences with full context, normalize the result by number of answer tokens (in the sentence)
             n_answer_tokens_sent = logit_probs_sent.shape[1]
-            for i,k in enumerate(Ks[1:], start=1):
+            for i,k in enumerate(ks[1:], start=1):
                 diff = (log_probs[0] - log_probs[i]) / n_answer_tokens_sent # diff full_context - ablated_context
 
                 # write result to the results dict (append to list for sentences)
