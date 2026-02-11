@@ -88,13 +88,15 @@ def plot_top_k_log_prob_drop(mean_drops, labels, ks, title="Top-k Log-Probabilit
     multiplier = 0
     for drops, label in zip(mean_drops, labels):
         offset = bar_width * multiplier 
-        rects = ax.bar(x+offset, drops, bar_width, label=label)
+        rects = ax.bar(x+offset, drops, bar_width, label=label, edgecolor="white", linewidth=0.5)
         multiplier += 1
 
     ax.set_title(title)
     ax.set_ylabel("Log-prob drop")
     ax.set_xticks(x + bar_width*(mean_drops.shape[0]-1)/2, [f"k={k}" for k in ks])
     ax.legend()
+    ax.set_axisbelow(True)
+    ax.grid(axis="y", linestyle="--", alpha=0.7)
 
     return fig
 #--- Plotting Functions ---#
