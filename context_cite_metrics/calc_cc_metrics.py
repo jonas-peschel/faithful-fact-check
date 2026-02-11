@@ -158,17 +158,20 @@ def calc_top_k_log_prob_drop(cc: ContextCiter, res: dict):
     # loop through attribution methods and sentences, then for each sentence compute
     # top-k log-prob drop for k=1,3,5
     for attr_method in res["methods"].keys():
+
+        # prepare results dict
+        if "metrics" not in res["methods"][attr_method].keys():
+            res["methods"][attr_method]["metrics"] = {}
+        if "top_k_drop" not in res["methods"][attr_method]["metrics"].keys():
+            res["methods"][attr_method]["metrics"]["top_k_drop"] = {}
+        for k in Ks[1:]:
+            res["methods"][attr_method]["metrics"]["top_k_drop"][f"top_{k}_drop"] = []  # for each method and k, there is a list of drops (drop for each sentence)
+
+
         for sent_idx, start_idx, end_idx in zip(range(len(sentences)), start_idxs, end_idxs):
 
-            # 0. load attribution scores & prepare results dict
+            # 0. load attribution scores
             attr_scores = res["methods"][attr_method]["attr_scores"][sent_idx] 
-
-            if "metrics" not in res["methods"][attr_method].keys():
-                res["methods"][attr_method]["metrics"] = {}
-            if "top_k_drop" not in res["methods"][attr_method]["metrics"].keys():
-                res["methods"][attr_method]["metrics"]["top_k_drop"] = {}
-            for k in Ks[1:]:
-                res["methods"][attr_method]["metrics"]["top_k_drop"][f"top_{k}_drop"] = []  # for each method and k, there is a list of drops (drop for each sentence)
 
             # 1. create masks for k=1,3,5 and create one full mask where no sources are ablated (k=0) for computing the difference 
             masks = []
