@@ -22,7 +22,6 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Calculate top-k log-prob drop (k=1,3,5) and linear datamodeling score for different attribution methods.") 
     parser.add_argument("--dataset", type=str, choices=["cnn_daily_mail"], default=None, required=True, help="Which dataset to use.")
     parser.add_argument("--model_name", type=str, choices=["meta-llama/Llama-3.1-8B-Instruct"], default="meta-llama/Llama-3.1-8B-Instruct", help="Huggingface name of model to use.")
-    parser.add_argument("--cc_num_ablations", type=int, nargs="+", choices=[32, 64, 128, 256], help="How many ablations to use if ContextCite was used as attribution method.")
     parser.add_argument("--results_path", type=str, default="Results/results.json", help="Path to the file where attribution scores and experiment results (metrics) are stored.")
     parser.add_argument("--n_samples", type=int, default=20, help="For how many data points to compute the metrics.")
 
