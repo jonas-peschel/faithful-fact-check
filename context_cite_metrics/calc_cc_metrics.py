@@ -134,7 +134,7 @@ def calc_top_k_log_prob_drop(cc: ContextCiter, res: dict):
 
         data_dict = {
             "input_ids": [],
-            "attention_masks": [],
+            "attention_mask": [],
             "labels": [],
         }
 
