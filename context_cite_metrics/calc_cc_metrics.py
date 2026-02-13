@@ -5,6 +5,7 @@ from pathlib import Path
 from datasets import load_dataset, Dataset
 import torch
 import numpy as np 
+from scipy.stats import spearmanr
 from dotenv import load_dotenv 
 from huggingface_hub import login
 from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
@@ -20,10 +21,13 @@ from numpy.typing import NDArray
 def parse_args():
 
     parser = argparse.ArgumentParser(description="Calculate top-k log-prob drop (k=1,3,5) and linear datamodeling score for different attribution methods.") 
-    parser.add_argument("--dataset", type=str, choices=["cnn_daily_mail"], default=None, required=True, help="Which dataset to use.")
+    parser.add_argument("--attr_methods", type=str, nargs="+", choices=["context_cite_32", "context_cite_64", "context_cite_128", "context_cite_256"], default=None, help="Which answer attribution methods to calculate the metrics for.")
+    parser.add_argument("--metrics", type=str, nargs="+", choices=["log_prob_drop", "LDS"], default=["log_prob_drop", "LDS"], help="Which metric(s) to compute.")
+    parser.add_argument("--dataset", type=str, choices=["cnn_daily_mail"], required=True, help="Which dataset to use.")
     parser.add_argument("--model_name", type=str, choices=["meta-llama/Llama-3.1-8B-Instruct"], default="meta-llama/Llama-3.1-8B-Instruct", help="Huggingface name of model to use.")
     parser.add_argument("--results_path", type=str, default="Results/results.json", help="Path to the file where attribution scores and experiment results (metrics) are stored.")
     parser.add_argument("--n_samples", type=int, default=20, help="For how many data points to compute the metrics.")
+    parser.add_argument("--m", type=int, default=128, help="How many random ablation vectors to sample for LDS calculation.")
 
     return parser.parse_args()
 
@@ -106,7 +110,7 @@ def split_text(text):
     return sentences, start_idxs, end_idxs
 
 #--- Metric Functions ---#
-def calc_top_k_log_prob_drop(cc: ContextCiter, res: dict):
+def calc_top_k_log_prob_drop(cc: ContextCiter, res: dict, attr_methods: List[str]):
     """
     Calculate top-k log-probability drop metric for a single data point.
     Calculate metric each for k=1,3,5 and for each sentence in the answer.
@@ -157,7 +161,8 @@ def calc_top_k_log_prob_drop(cc: ContextCiter, res: dict):
 
     # loop through attribution methods and sentences, then for each sentence compute
     # top-k log-prob drop for k=1,3,5
-    for attr_method in res["methods"].keys():
+    attr_methods = res["methods"].keys() if attr_methods is None else attr_methods
+    for attr_method in attr_methods:
 
         # prepare results dict
         if "metrics" not in res["methods"][attr_method].keys():
@@ -204,6 +209,55 @@ def calc_top_k_log_prob_drop(cc: ContextCiter, res: dict):
                 res["methods"][attr_method]["metrics"]["top_k_drop"][f"top_{k}_drop"].append(diff.item())
                 
     return res
+
+def calc_linear_datamodeling_score(cc: ContextCiter, res: dict, attr_methods: List[str]):
+    """Calculate linear datamodeling score metric for each sentence for a single data point."""
+
+    def prepare_results_dict(res: dict, attr_methods: List[str]):
+        """Add key-structure to the results dict for saving the LDS scores."""
+
+        for attr_method in attr_methods:
+            if "metrics" not in res["methods"][attr_method].keys():
+                res["methods"][attr_method]["metrics"] = {}
+            res["methods"][attr_method]["metrics"]["LDS"] = []  # list of scores (one LDS score per sentence)
+
+        return res
+
+
+    answer = cc.response
+    sentences, start_idxs, end_idxs = split_text(answer)
+
+    attr_methods = res["methods"].keys() if attr_methods is None else attr_methods
+    res = prepare_results_dict(res, attr_methods)
+
+    # get logit probs for each context ablation and answer token
+    logit_probs = cc._logit_probs  # (m, n_answer_tokens)
+    masks = cc._masks   # (m, n_sources)
+
+    # loop through sentences and attribution methods, then for each sentence compute LDS
+    for sent_idx, start_idx, end_idx in zip(range(len(sentences)), start_idxs, end_idxs):
+
+        # aggregate logit_probs for the current sentence to get the true response generation probabilities f
+        ids_start_idx, ids_end_idx = cc._indices_to_token_indices(start_idx, end_idx)
+        logit_probs_sent = logit_probs[:, ids_start_idx:ids_end_idx]        # (m, n_tokens_sent)
+        f = aggregate_logit_probs(logit_probs_sent, output_type="log_prob") # (m,)
+
+        # compare true probabilities with predicted probabilities for each attribution method
+        for attr_method in attr_methods:
+
+            # load attribution scores for the current sentence and method
+            attr_scores = np.array(res["methods"][attr_method]["attr_scores"][sent_idx])
+
+            # calculate predicted probs by summing the attribution scores corresponding to the non-ablated sources
+            f_hat = masks @ attr_scores # (m, n_sources) x (n_sources) -> (m,)
+
+            # compute Spearman rank correlation
+            LDS = spearmanr(f, f_hat).statistic
+    
+            # write result to the results dict (append to list for sentences)
+            res["methods"][attr_method]["metrics"]["LDS"].append(LDS.item())
+
+    return res
 #--- Metric Functions ---#
 
 
@@ -244,6 +298,7 @@ def main(config=None):
             tokenizer = tokenizer,
             context = context,
             query = query,
+            num_ablations = config.m,   # number of ablations for LDS calculation; doesn't matter for log-prob drop
             prompt_template = CC_PROMPT_TEMPLATE,
             generate_kwargs = CC_GENERATE_KWARGS,
         )
@@ -252,8 +307,13 @@ def main(config=None):
         answer = cc.response
         assert answer == data_point_results["model_answer"], "Model answer must be always identical."
 
-        # calculate top-k log-probability drop metric
-        data_point_results = calc_top_k_log_prob_drop(cc, data_point_results)
+        if "log_prob_drop" in config.metrics:
+            # calculate top-k log-probability drop metric
+            data_point_results = calc_top_k_log_prob_drop(cc, data_point_results, config.attr_methods)
+
+        if "LDS" in config.metrics:
+            # calculate linear datamodeling score metric
+            data_point_results = calc_linear_datamodeling_score(cc, data_point_results, config.attr_methods)
 
         # add results for the data point to the results
         results["results"][idx] = data_point_results
