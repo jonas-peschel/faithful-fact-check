@@ -112,7 +112,7 @@ def main(config=None):
 
     # use all ks from the data if not provided
     if config.ks is None:
-        # have fun trying to understand this
+        # good luck trying to read this
         config.ks = [int(re.compile(r"top_(\d+)_drop").match(key).group(1)) for key in list(list(results["results"][0]["methods"].values())[0]["metrics"]["top_k_drop"].keys())]    
 
     # aggregate mean over the data
