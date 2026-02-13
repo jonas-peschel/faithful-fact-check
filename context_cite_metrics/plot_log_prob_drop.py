@@ -9,10 +9,10 @@ import re
 
 def parse_args():
 
-    parser = argparse.ArgumentParser(description="Plot results for ContextCite metrics, i.e. top-k log-prob drop and linear datamodeling score.")
+    parser = argparse.ArgumentParser(description="Plot results for ContextCite top-k log-prob drop metric.")
     parser.add_argument("results_path", type=str, help="Path to the file where attribution scores and experiment results (metrics) are stored.")
     parser.add_argument("plots_savepath", type=str, help="Path where to save the generated plots.")
-    parser.add_argument("--plot_title", type=str, default="Top-k Log-Probability Drop Metric", help="Plot title.")
+    parser.add_argument("--plot_title", type=str, default="Top-k Log-Probability Drop Metric", help="Title for the plot.")
     parser.add_argument("--ks", type=int, nargs="+", choices=range(1,10), default=None, help="For which k's to plot the results.")
 
     return parser.parse_args()
