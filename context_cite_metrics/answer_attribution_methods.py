@@ -13,13 +13,14 @@ from tqdm.auto import tqdm
 import nltk
 from nltk import sent_tokenize
 nltk.download("punkt_tab")
+from typing import List
 
 def parse_args():
 
     parser = argparse.ArgumentParser(description="Calculate answer attribution scores using different attribution methods.")
     parser.add_argument("--dataset", type=str, choices=["cnn_daily_mail"], default=None, required=True, help="Which dataset to use.")
     parser.add_argument("--model_name", type=str, choices=["meta-llama/Llama-3.1-8B-Instruct"], default="meta-llama/Llama-3.1-8B-Instruct", help="Huggingface name of model to use.")
-    parser.add_argument("--attr_methods", type=str, nargs="+", choices=["context_cite"], required=True, help="Which answer attribution methods to use.")
+    parser.add_argument("--attr_methods", type=str, nargs="+", choices=["context_cite", "semantic_similarity"], required=True, help="Which answer attribution methods to use.")
     parser.add_argument("--cc_num_ablations", type=int, nargs="+", choices=[32, 64, 128, 256], help="How many ablations to use if ContextCite is used as attribution method.")
     parser.add_argument("--results_path", type=str, default="Results/results.json", help="Path to the file where attribution scores and experiment results are stored.")
     parser.add_argument("--n_samples", type=int, default=20, help="How many data points to sample from the dataset.")
@@ -104,40 +105,69 @@ def split_text(text):
 
     return sentences, start_idxs, end_idxs
 
-#--- Answer Attribution Methods ---#
-def compute_attributions_context_cite(cc: ContextCiter, res: dict):
-    """Compute attributions for each sentence in the model answer and write it to the results dict."""
+def prepare_results_dict(cc: ContextCiter, res: dict):
+    """Add key-structure to the results dict for saving the attribution scores."""
 
-    answer = cc.response
-    if "model_answer" in res.keys():
-        assert answer == res["model_answer"], "Model answer must be always identical."
-
-    sentences, start_idxs, end_idxs = split_text(answer)
-    attr_scores = []
-
-    for start_idx, end_idx in zip(start_idxs, end_idxs):
-
-        attr_scores_sent = cc.get_attributions(start_idx=start_idx, end_idx=end_idx, as_dataframe=False)
-        attr_scores.append(attr_scores_sent.tolist())   # convert to list for json serialization
-
-    #--- write results to results dict ---#
+    #--- write meta information about the data point results ---#
     if "query" not in res.keys():
         res["query"] = cc.query
     if "model_answer" not in res.keys():
-        res["model_answer"] = answer
+        res["model_answer"] = cc.response
     if "num_sources" not in res.keys():
         res["num_sources"] = len(cc.sources)
     if "num_answer_sentences" not in res.keys():
-        res["num_answer_sentences"] = len(sentences)
+        res["num_answer_sentences"] = len(sent_tokenize(cc.response))
+
     # attribution scores
     if "methods" not in res.keys():
         res["methods"] = {}
+
+    return res
+
+#--- Answer Attribution Methods ---#
+def compute_attributions_context_cite(cc_kwargs: dict, res: dict, cc_num_ablations: List[int]):
+    """Compute ContextCite attributions for each given number of ablations."""
+
+    def cc_compute_attributions(cc: ContextCiter, res: dict):
+        """Compute attributions for each sentence in the model answer and write it to the results dict."""
+
+        answer = cc.response
+        if "model_answer" in res.keys():
+            assert answer == res["model_answer"], "Model answer must be always identical."
+
+        sentences, start_idxs, end_idxs = split_text(answer)
+        attr_scores = []
+
+        for start_idx, end_idx in zip(start_idxs, end_idxs):
+
+            attr_scores_sent = cc.get_attributions(start_idx=start_idx, end_idx=end_idx, as_dataframe=False)
+            attr_scores.append(attr_scores_sent.tolist())   # convert to list for json serialization
+
+
+        # add attribution scores for the specific method (always overwrite if there were existing ones)
+        method_name = f"context_cite_{cc.num_ablations}"    # for context cite include the number of ablations in the method name
+        res["methods"][method_name] = {
+            "attr_scores": attr_scores,
+        }
+
+        return res
     
-    # add attribution scores for the specific method (always overwrite if there were existing ones)
-    method_name = f"context_cite_{cc.num_ablations}"    # for context cite include the number of ablations in the method name
-    res["methods"][method_name] = {
-        "attr_scores": attr_scores,
-    }
+
+    if len(cc_num_ablations) == 0:   # check that at least one option for num_ablations is given
+        raise ValueError("Number(s) of ablations must be specified when using ContextCite for attribution.")
+
+    for num_ablations in cc_num_ablations: 
+
+        # instantiate new ContextCiter for each num_ablations
+        cc = ContextCiter(**cc_kwargs, num_ablations=num_ablations)
+
+        # check that the same answer is generated if there are previous results
+        answer = cc.response
+        if "model_answer" in res.keys():
+            assert answer == res["model_answer"], "Model answer must be always identical."
+
+        # compute attribution scores
+        res = cc_compute_attributions(cc, res)
 
     return res
 #--- Answer Attribution Methods ---#
@@ -199,50 +229,32 @@ def main(config=None):
 
         context, query = load_datapoint(data_point, config.dataset) # depends on the given dataset
 
-        # for ContextCite as attribution method we need a need ContextCiter instance per cc_num_ablations setting
-        # then we can use simply the last instantiated ContextCiter for the other attribution methods calculations
-        # if ContextCite is not specified in the arguments to use as attribution method, we have to instantiate a
-        # single ContextCiter object (num_ablations does not matter there)
+        # instantiate ContextCiter to use for answer attribution (used by baselines; for attribution with ContextCite 
+        # we have to instantiate new ContextCiter objects with corresponding num_ablations).
+        cc_kwargs = {
+                "model": model,
+                "tokenizer": tokenizer,
+                "context": context,
+                "query": query,
+                "prompt_template": CC_PROMPT_TEMPLATE,
+                "generate_kwargs": CC_GENERATE_KWARGS,
+            }
+        cc = ContextCiter(**cc_kwargs)
 
+        # save meta information for the data point and add key structure to the dict to save attribution scores later
+        data_point_results = prepare_results_dict(cc, data_point_results)
+
+        #--- perform answer attribution using the different methods ---#
         if "context_cite" in config.attr_methods:
 
-            if len(config.cc_num_ablations) == 0:   # check that at least one option for num_ablations is given
-                raise ValueError("Number(s) of ablations must be specified when using ContextCite for attribution.")
-            
-            for n_ablations in config.cc_num_ablations: # instantiate new ContextCiter for each num_ablations
+            data_point_results = compute_attributions_context_cite(cc_kwargs, data_point_results, config.cc_num_ablations)
 
-                cc = ContextCiter(
-                    model = model,
-                    tokenizer = tokenizer,
-                    context = context,
-                    query = query,
-                    num_ablations = n_ablations,
-                    prompt_template = CC_PROMPT_TEMPLATE,
-                    generate_kwargs = CC_GENERATE_KWARGS,
-                )
+        if "semantic_similarity" in config.attr_methods:
 
-                # perform answer attributions with ContextCite method
-                data_point_results = compute_attributions_context_cite(cc, data_point_results)
+            pass
 
-        # instantiate one ContextCiter if we don't use ContextCite for attribution
-        else:   
 
-            cc = ContextCiter(
-                model = model,
-                tokenizer = tokenizer,
-                context = context,
-                query = query,
-                prompt_template = CC_PROMPT_TEMPLATE,
-                generate_kwargs = CC_GENERATE_KWARGS,
-            )
-
-            # check that the same answer is generated if there are previous results
-            answer = cc.response
-            if "model_answer" in data_point_results.keys():
-                assert answer == data_point_results["model_answer"], "Model answer must be always identical."
-
-        # perform remaining methods for answer attribution
-        # TODO
+        # TODO: implement remaining methods for answer attribution
 
 
         # add results for the data point to the results
