@@ -183,7 +183,7 @@ def calc_top_k_log_prob_drop(cc: ContextCiter, res: dict, attr_methods: List[str
             for k in ks:
                 masks.append(create_mask(attr_scores, k))
 
-            # 2. create "dataset" with input tokens and output tokens (labels) for different ablations
+            # 2. create "dataset" with input tokens for different ablations and output tokens (labels) 
             dataset = create_dataset(cc, masks)
 
             # 3. calculate logit probabilities for all answer tokens for each of the context ablations

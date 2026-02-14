@@ -26,8 +26,8 @@ def load_json(filepath):
 
 def aggregate_log_prob_drops(results, ks):
     """
-    Calculate mean log-prob drop over all sentences in the data for answer attribution
-    method and number of ablations k.
+    Calculate mean log-prob drop over all sentences in the data for
+    each answer attribution method and number of ablations k.
 
     Args:
         results (Dict):
