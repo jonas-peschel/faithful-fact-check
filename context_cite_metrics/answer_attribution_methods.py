@@ -4,10 +4,12 @@ import json
 from pathlib import Path
 from datasets import load_dataset, Dataset
 import torch
+from torch.utils.data import Dataset, DataLoader
 import numpy as np 
 from dotenv import load_dotenv 
 from huggingface_hub import login
-from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
+from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig, AutoModelForSequenceClassification
+from transformers import PreTrainedModel, PreTrainedTokenizer, PreTrainedTokenizerFast
 from sentence_transformers import SentenceTransformer
 from context_cite import ContextCiter
 from context_cite.utils import _get_response_logit_probs, aggregate_logit_probs
@@ -15,7 +17,7 @@ from tqdm.auto import tqdm
 import nltk
 from nltk import sent_tokenize
 nltk.download("punkt_tab")
-from typing import List
+from typing import List, Union
 from numpy.typing import NDArray
 
 def parse_args():
@@ -23,7 +25,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Calculate answer attribution scores using different attribution methods.")
     parser.add_argument("--dataset", type=str, choices=["cnn_daily_mail"], default=None, required=True, help="Which dataset to use.")
     parser.add_argument("--model_name", type=str, choices=["meta-llama/Llama-3.1-8B-Instruct"], default="meta-llama/Llama-3.1-8B-Instruct", help="Huggingface name of model to use.")
-    parser.add_argument("--attr_methods", type=str, nargs="+", choices=["context_cite", "semantic_similarity", "leave-one-out"], required=True, help="Which answer attribution methods to use.")
+    parser.add_argument("--attr_methods", type=str, nargs="+", choices=["context_cite", "semantic_similarity", "leave_one_out", "nli_post_hoc_naive"], required=True, help="Which answer attribution methods to use.")
     parser.add_argument("--cc_num_ablations", type=int, nargs="+", choices=[32, 64, 128, 256], help="How many ablations to use if ContextCite is used as attribution method.")
     parser.add_argument("--results_path", type=str, default="Results/results.json", help="Path to the file where attribution scores and experiment results are stored.")
     parser.add_argument("--n_samples", type=int, default=20, help="How many data points to sample from the dataset.")
@@ -280,7 +282,70 @@ def compute_attributions_leave_one_out(cc: ContextCiter, res: dict):
 
 
     # write to results dict
-    res["methods"]["leave-one-out"] = {
+    res["methods"]["leave_one_out"] = {
+        "attr_scores": attr_scores,
+    }
+
+    return res
+
+def compute_attributions_post_hoc_naive(cc: ContextCiter, nli_tokenizer: Union[PreTrainedTokenizer, PreTrainedTokenizerFast], 
+                                        nli_model: PreTrainedModel, res: dict):
+    """
+    Compute answer attribution scores using post-hoc attribution with the DeBERTa model for natural language 
+    inference for each sentence in the model answer. We take as attribution scores the predicted probability
+    for entailment from the NLI model using the answer sentence to attribute as premise and each of the 
+    context sentences as premise, respectively. This is a naive version because we only consider individual
+    source sentences, disregarding that they might need context from adjacent sentences to be understandable.
+    """
+
+    class NLIDataset(Dataset):
+        """Contains all pairs of sentences between a single answer sentence and all context sentences."""
+
+        def __init__(self, answer_sent: str, context_sents: List[str]):
+            self.answer_sent = answer_sent
+            self.context_sents = context_sents 
+
+        def __len__(self):
+            return len(self.context_sents) 
+
+        def __getitem__(self, idx):
+            return self.answer_sent, self.context_sents[idx]
+
+
+    answer = cc.response
+    sentences, _, _ = split_text(answer)
+
+    attr_scores = []
+    for sent in sentences:
+
+        # use torch dataloader for batch processing
+        dataset = NLIDataset(sent, cc.sources)
+        dataloader = DataLoader(dataset, shuffle=False, batch_size=32)
+
+        entailment_probs = []
+        for answer_sent, context_sents in dataloader:
+
+            input = nli_tokenizer(
+                list(context_sents),
+                list(answer_sent),
+                padding=True,
+                truncation=True,
+                return_tensors="pt",
+            ).to(nli_model.device)
+
+            with torch.inference_mode():
+                output = nli_model(**input)
+
+            probs = torch.softmax(output.logits, axis=1)   # convert to probabilities
+            entailment_prob = probs[:,0]    # only use predicted prob for entailment
+            entailment_probs.append(entailment_prob.cpu())
+
+        entailment_probs = np.concat(entailment_probs, axis=0)  # concatenate results from all batches
+
+        attr_scores.append(entailment_probs.tolist())   # save results as list for json compatibility
+
+    # write to results dict
+    res["methods"]["nli_post_hoc_naive"] = {
         "attr_scores": attr_scores,
     }
 
@@ -331,6 +396,13 @@ def main(config=None):
     if "semantic_similarity" in config.attr_methods:
         sentence_embedding_model = SentenceTransformer("all-mpnet-base-v2")
 
+    # load DeBERTa NLI model for post-hoc answer attribution
+    if "nli_post_hoc_naive" in config.attr_methods:
+        model_name = "MoritzLaurer/DeBERTa-v3-large-mnli-fever-anli-ling-wanli"
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        nli_tokenizer = AutoTokenizer.from_pretrained(model_name)
+        nli_model = AutoModelForSequenceClassification.from_pretrained(model_name).to(device)
+
     CC_PROMPT_TEMPLATE = load_cc_prompt_template(config.dataset)
     CC_GENERATE_KWARGS = {"do_sample": False, "max_new_tokens": 512}
 
@@ -372,11 +444,13 @@ def main(config=None):
 
             data_point_results = compute_attributions_semantic_similarity(cc, sentence_embedding_model, data_point_results)
 
-        if "leave-one-out" in config.attr_methods:
+        if "leave_one_out" in config.attr_methods:
 
             data_point_results = compute_attributions_leave_one_out(cc, data_point_results)
 
-        # TODO: implement remaining methods for answer attribution
+        if "nli_post_hoc_naive" in config.attr_methods:
+
+            data_point_results = compute_attributions_post_hoc_naive(cc, nli_tokenizer, nli_model, data_point_results)
 
 
         # add results for the data point to the results
