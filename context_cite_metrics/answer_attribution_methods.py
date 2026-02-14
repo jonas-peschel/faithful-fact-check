@@ -8,6 +8,7 @@ import numpy as np
 from dotenv import load_dotenv 
 from huggingface_hub import login
 from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
+from sentence_transformers import SentenceTransformer
 from context_cite import ContextCiter
 from tqdm.auto import tqdm
 import nltk
@@ -170,6 +171,34 @@ def compute_attributions_context_cite(cc_kwargs: dict, res: dict, cc_num_ablatio
         res = cc_compute_attributions(cc, res)
 
     return res
+
+def compute_attributions_semantic_similarity(cc: ContextCiter, res: dict):
+    """
+    Compute answer attribution scores based on semantic similarity for each sentence in the model answer.
+    The sentences in the model answer and the context are embedded using a sentence embedding model and
+    their cosine similarities are used as attribution scores.
+    """
+
+    # load sentence embedding model
+    embedding_model = SentenceTransformer("all-mpnet-base-v2")
+
+    answer_sentences, _, _ = split_text(cc.response)
+    context_sentences = cc.sources
+
+    # embed sentences
+    answer_embeddings = embedding_model.encode(answer_sentences)
+    context_embeddings = embedding_model.encode(context_sentences) 
+
+    # compute cosine similarities for each pair of answer and context sentence
+    embedding_model.similarity_fn_name = "cosine" 
+    cos_similarities = embedding_model.similarity(answer_embeddings, context_embeddings)    # (n_sentences, n_sources)
+
+    # write to results dict
+    res["methods"]["semantic_similarity"] = {
+        "attr_scores": cos_similarities.tolist(),
+    }
+
+    return res
 #--- Answer Attribution Methods ---#
 
 
@@ -251,7 +280,7 @@ def main(config=None):
 
         if "semantic_similarity" in config.attr_methods:
 
-            pass
+            data_point_results = compute_attributions_semantic_similarity(cc, data_point_results)
 
 
         # TODO: implement remaining methods for answer attribution
