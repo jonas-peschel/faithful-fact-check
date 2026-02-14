@@ -172,15 +172,12 @@ def compute_attributions_context_cite(cc_kwargs: dict, res: dict, cc_num_ablatio
 
     return res
 
-def compute_attributions_semantic_similarity(cc: ContextCiter, res: dict):
+def compute_attributions_semantic_similarity(cc: ContextCiter, embedding_model: SentenceTransformer, res: dict):
     """
     Compute answer attribution scores based on semantic similarity for each sentence in the model answer.
     The sentences in the model answer and the context are embedded using a sentence embedding model and
     their cosine similarities are used as attribution scores.
     """
-
-    # load sentence embedding model
-    embedding_model = SentenceTransformer("all-mpnet-base-v2")
 
     answer_sentences, _, _ = split_text(cc.response)
     context_sentences = cc.sources
@@ -241,6 +238,10 @@ def main(config=None):
     model, tokenizer, device = load_model(config.model_name, True) # load veracity classification and justification model (Llama-8B-Instruct)
     data = load_data(config.dataset, n_samples=config.n_samples, seed=0)
 
+    # load sentence embedding model if semantic similarity is used for attribution
+    if "semantic_similarity" in config.attr_methods:
+        sentence_embedding_model = SentenceTransformer("all-mpnet-base-v2")
+
     CC_PROMPT_TEMPLATE = load_cc_prompt_template(config.dataset)
     CC_GENERATE_KWARGS = {"do_sample": False, "max_new_tokens": 512}
 
@@ -280,7 +281,7 @@ def main(config=None):
 
         if "semantic_similarity" in config.attr_methods:
 
-            data_point_results = compute_attributions_semantic_similarity(cc, data_point_results)
+            data_point_results = compute_attributions_semantic_similarity(cc, sentence_embedding_model, data_point_results)
 
 
         # TODO: implement remaining methods for answer attribution
