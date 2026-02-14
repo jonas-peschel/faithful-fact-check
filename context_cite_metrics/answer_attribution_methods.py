@@ -270,7 +270,7 @@ def compute_attributions_leave_one_out(cc: ContextCiter, res: dict):
 
         log_probs = []  # final log probabilites for the answer with context ablations
         for i in range(logit_probs_sent.shape[0]):
-            log_probs.append(aggregate_logit_probs(logit_probs_sent[i:i+1,:], output_type="log_prob")).item()
+            log_probs.append(aggregate_logit_probs(logit_probs_sent[i:i+1,:], output_type="log_prob").item())
 
         # 5. compute differences with full context, normalize the result by number of answer tokens (in the sentence)
         n_answer_tokens_sent = logit_probs_sent.shape[1]
