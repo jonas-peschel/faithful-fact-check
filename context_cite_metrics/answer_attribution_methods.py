@@ -2,7 +2,7 @@ import argparse
 import os
 import json
 from pathlib import Path
-from datasets import load_dataset
+from datasets import load_dataset, Dataset
 import torch
 import numpy as np 
 from dotenv import load_dotenv 
@@ -10,18 +10,20 @@ from huggingface_hub import login
 from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
 from sentence_transformers import SentenceTransformer
 from context_cite import ContextCiter
+from context_cite.utils import _get_response_logit_probs, aggregate_logit_probs
 from tqdm.auto import tqdm
 import nltk
 from nltk import sent_tokenize
 nltk.download("punkt_tab")
 from typing import List
+from numpy.typing import NDArray
 
 def parse_args():
 
     parser = argparse.ArgumentParser(description="Calculate answer attribution scores using different attribution methods.")
     parser.add_argument("--dataset", type=str, choices=["cnn_daily_mail"], default=None, required=True, help="Which dataset to use.")
     parser.add_argument("--model_name", type=str, choices=["meta-llama/Llama-3.1-8B-Instruct"], default="meta-llama/Llama-3.1-8B-Instruct", help="Huggingface name of model to use.")
-    parser.add_argument("--attr_methods", type=str, nargs="+", choices=["context_cite", "semantic_similarity"], required=True, help="Which answer attribution methods to use.")
+    parser.add_argument("--attr_methods", type=str, nargs="+", choices=["context_cite", "semantic_similarity", "leave-one-out"], required=True, help="Which answer attribution methods to use.")
     parser.add_argument("--cc_num_ablations", type=int, nargs="+", choices=[32, 64, 128, 256], help="How many ablations to use if ContextCite is used as attribution method.")
     parser.add_argument("--results_path", type=str, default="Results/results.json", help="Path to the file where attribution scores and experiment results are stored.")
     parser.add_argument("--n_samples", type=int, default=20, help="How many data points to sample from the dataset.")
@@ -196,6 +198,93 @@ def compute_attributions_semantic_similarity(cc: ContextCiter, embedding_model: 
     }
 
     return res
+
+def compute_attributions_leave_one_out(cc: ContextCiter, res: dict):
+    """Compute answer attribution scores based on leave-one-out baseline for each sentence in the model answer."""
+
+    def create_masks(cc: ContextCiter) -> List[NDArray[np.bool_]]:
+        """
+        Set up boolean masks for calculating the log-prob drop for each context source.
+        
+        Returns:
+            masks (List[NDArray[np.bool_]]):
+                List of boolean masks. First element is a full masks with all entries equal to 1.
+                For the following entries exactly one entry is set to 0 and all others remain 1;
+                one entry per context source. Shape: (n_sources+1, n_sources)
+        """
+
+        masks = []
+        masks.append(np.ones(len(cc.sources), dtype=np.bool_))  # full mask 
+        for i in range(len(cc.sources)):
+            mask = np.ones(len(cc.sources), dtype=np.bool_)
+            mask[i] = False
+            masks.append(mask)
+
+        return masks
+    
+    def create_dataset(cc: ContextCiter, masks: List[NDArray[np.bool_]]):
+        """
+        Create "dataset" with input tokens and output tokens (labels) for different ablations.
+        Based on ContextCite utils._create_regression_dataset function.
+        """
+
+        data_dict = {
+            "input_ids": [],
+            "attention_mask": [],
+            "labels": [],
+        }
+
+        response_ids = cc._response_ids # token indices of the complete response
+        for mask in masks:
+            prompt_ids = cc._get_prompt_ids(mask=mask)  # token indices of the prompt with sources ablated according to the mask
+            input_ids = prompt_ids + response_ids
+
+            data_dict["input_ids"].append(input_ids)
+            data_dict["attention_mask"].append([1] * len(input_ids))
+            data_dict["labels"].append([-100] * len(prompt_ids) + response_ids) # label only for response part
+
+        return Dataset.from_dict(data_dict)
+    
+
+    answer = cc.response
+    sentences, start_idxs, end_idxs = split_text(answer)
+
+    # create masks: one full mask and one per context source where exactly one source is ablated
+    masks = create_masks(cc)
+
+    # create "dataset" with input tokens for the different ablations and output tokens (labels) 
+    dataset = create_dataset(cc, masks)
+
+    # calculate logit probabilities for all answer tokens for each of the context ablations
+    # shape: (n_masks, n_answer_tokens)
+    logit_probs = _get_response_logit_probs(
+        dataset, cc.model, cc.tokenizer, len(cc._response_ids), cc.batch_size
+    )
+
+    attr_scores = []
+    for start_idx, end_idx in zip(start_idxs, end_idxs):
+
+        # aggregate logit_probs and convert to log_prob for the current sentence
+        ids_start_idx, ids_end_idx = cc._indices_to_token_indices(start_idx, end_idx)
+        logit_probs_sent = logit_probs[:, ids_start_idx:ids_end_idx]
+
+        log_probs = []  # final log probabilites for the answer with context ablations
+        for i in range(logit_probs_sent.shape[0]):
+            log_probs.append(aggregate_logit_probs(logit_probs_sent[i:i+1,:], output_type="log_prob"))
+
+        # 5. compute differences with full context, normalize the result by number of answer tokens (in the sentence)
+        n_answer_tokens_sent = logit_probs_sent.shape[1]
+        log_prob_drops = (np.array(log_probs[0]) - np.array(log_probs[1:])) / n_answer_tokens_sent
+
+        attr_scores.append(log_prob_drops.tolist())
+
+
+    # write to results dict
+    res["methods"]["leave-one-out"] = {
+        "attr_scores": attr_scores,
+    }
+
+    return res
 #--- Answer Attribution Methods ---#
 
 
@@ -283,6 +372,9 @@ def main(config=None):
 
             data_point_results = compute_attributions_semantic_similarity(cc, sentence_embedding_model, data_point_results)
 
+        if "leave-one-out" in config.attr_methods:
+
+            data_point_results = compute_attributions_leave_one_out(cc, data_point_results)
 
         # TODO: implement remaining methods for answer attribution
 
