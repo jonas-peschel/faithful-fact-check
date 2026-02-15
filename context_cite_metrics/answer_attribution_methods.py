@@ -64,8 +64,8 @@ def load_data(dataset_name, n_samples, seed=0):
     if dataset_name == "druid":
         dataset = load_dataset("copenlu/druid", "DRUID", split="train")  # there is only a train split for this dataset
 
-        # for calculating ContextCite metrics only use examples where the evidence is sufficient
-        dataset = dataset.filter(lambda example: example["evidence_stance"] == "supports" or example["evidence_stance"] == "refutes")
+        # for calculating ContextCite metrics only use examples where the evidence is sufficient and where verdict is True or False
+        dataset = dataset.filter(lambda example: (example["evidence_stance"] == "supports" or example["evidence_stance"] == "refutes") and (example["factcheck_verdict"] == "False" or example["factcheck_verdict"] == "True"))
 
         # sample max 1000 samples and take the first n_samples
         # that way, results from different runs with different n_samples will use the same datapoints in the beginning
