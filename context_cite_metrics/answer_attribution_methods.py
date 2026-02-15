@@ -69,6 +69,9 @@ def load_data(dataset_name, n_samples, seed=0):
         # for calculating ContextCite metrics only use examples where the evidence is sufficient and where verdict is True or False
         dataset = dataset.filter(lambda example: (example["evidence_stance"] == "supports" or example["evidence_stance"] == "refutes") and (example["factcheck_verdict"] == "False" or example["factcheck_verdict"] == "True"))
 
+        # use only instances where the context is not extremly short (at least 5 sentences), otherwise the LDS score will probably be quite biased
+        dataset = dataset.filter(lambda example: len(sent_tokenize(example["evidence"])) >= 5)
+
         # sample max 1000 samples and take the first n_samples
         # that way, results from different runs with different n_samples will use the same datapoints in the beginning
         np.random.seed(seed)
