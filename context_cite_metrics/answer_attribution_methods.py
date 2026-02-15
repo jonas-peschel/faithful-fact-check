@@ -2,9 +2,11 @@ import argparse
 import os
 import json
 from pathlib import Path
-from datasets import load_dataset, Dataset
+import datasets
+from datasets import load_dataset
 import torch
-from torch.utils.data import Dataset, DataLoader
+from torch import utils
+from torch.utils.data import DataLoader
 import numpy as np 
 from dotenv import load_dotenv 
 from huggingface_hub import login
@@ -275,7 +277,7 @@ def compute_attributions_leave_one_out(cc: ContextCiter, res: dict):
             data_dict["attention_mask"].append([1] * len(input_ids))
             data_dict["labels"].append([-100] * len(prompt_ids) + response_ids) # label only for response part
 
-        return Dataset.from_dict(data_dict)
+        return datasets.Dataset.from_dict(data_dict)
     
 
     answer = cc.response
@@ -328,7 +330,7 @@ def compute_attributions_post_hoc_naive(cc: ContextCiter, nli_tokenizer: Union[P
     source sentences, disregarding that they might need context from adjacent sentences to be understandable.
     """
 
-    class NLIDataset(Dataset):
+    class NLIDataset(utils.data.Dataset):
         """Contains all pairs of sentences between a single answer sentence and all context sentences."""
 
         def __init__(self, answer_sent: str, context_sents: List[str]):
