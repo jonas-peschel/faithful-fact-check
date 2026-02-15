@@ -23,7 +23,7 @@ from numpy.typing import NDArray
 def parse_args():
 
     parser = argparse.ArgumentParser(description="Calculate answer attribution scores using different attribution methods.")
-    parser.add_argument("--dataset", type=str, choices=["cnn_daily_mail"], default=None, required=True, help="Which dataset to use.")
+    parser.add_argument("--dataset", type=str, choices=["cnn_daily_mail", "druid"], default=None, required=True, help="Which dataset to use.")
     parser.add_argument("--model_name", type=str, choices=["meta-llama/Llama-3.1-8B-Instruct"], default="meta-llama/Llama-3.1-8B-Instruct", help="Huggingface name of model to use.")
     parser.add_argument("--attr_methods", type=str, nargs="+", choices=["context_cite", "semantic_similarity", "leave_one_out", "nli_post_hoc_naive"], required=True, help="Which answer attribution methods to use.")
     parser.add_argument("--cc_num_ablations", type=int, nargs="+", choices=[32, 64, 128, 256], help="How many ablations to use if ContextCite is used as attribution method.")
@@ -44,40 +44,70 @@ def save_json(filepath, content):
     with open(filepath, "w") as f:
         json.dump(content, f, indent=4)
 
+#--- dataset helper methods ---#
 def load_data(dataset_name, n_samples, seed=0):
 
     assert n_samples <= 1000, "Max. 1000 samples"
 
-    # Dataset 1: CNN Daily Mail
+    # Dataset 1: CNN DailyMail
     if dataset_name == "cnn_daily_mail":
-        dataset = load_dataset("abisee/cnn_dailymail", "3.0.0", split="train")
+        dataset = load_dataset("abisee/cnn_dailymail", "3.0.0", split="train")   # TODO: should better use validation split like in ContextCite paper for next runs
 
         # sample max 1000 samples and take the first n_samples
-        # that way, results from different runs with different n_samples will use the same datapoints
+        # that way, results from different runs with different n_samples will use the same datapoints in the beginning
         np.random.seed(seed)
         idxs = np.random.choice(len(dataset), 1000, replace=False)
         idxs = idxs[:n_samples]
         dataset_sampled = dataset.select(idxs)
 
+    # Dataset 2: DRUID
+    if dataset_name == "druid":
+        dataset = load_dataset("copenlu/druid", "DRUID", split="train")  # there is only a train split for this dataset
+
+        # for calculating ContextCite metrics only use examples where the evidence is sufficient
+        dataset = dataset.filter(lambda example: example["evidence_stance"] == "supports" or example["evidence_stance"] == "refutes")
+
+        # sample max 1000 samples and take the first n_samples
+        # that way, results from different runs with different n_samples will use the same datapoints in the beginning
+        np.random.seed(seed)
+        idxs = np.random.choice(len(dataset), 1000, replace=False)
+        idxs = idxs[:n_samples]
+        dataset_sampled = dataset.select(idxs)
+    
     return dataset_sampled
 
 def load_datapoint(datapoint, dataset_name):
     """Load context and query from a datapoint depending on the given dataset."""
 
-    # Dataset 1: CNN Daily Mail
+    # Dataset 1: CNN DailyMail
     if dataset_name == "cnn_daily_mail":
 
         context = datapoint["article"]
         query = "Please summarize the article in up to three sentences."
 
+    # Dataset 2: DRUID
+    if dataset_name == "druid":
+
+        # format claim + evidence as context
+        context = f"Claim: {datapoint["claim"]}\n\nEvidence: {datapoint["evidence"]}"
+
+        # fact-checking query
+        query = "You are an expert fact-checker. You are provided with a claim and related evidence. Based only on the provided evidence, determine if the given claim is either supported or refuted."
+        query += " Write a paragraph that justifies your decision and the reasons why you decided to classify the claim in the way that you did."
+
     return context, query
 
 def load_cc_prompt_template(dataset_name):
 
-    # Dataset 1: CNN Daily Mail
+    # Dataset 1: CNN DailyMail
     if dataset_name == "cnn_daily_mail":
         return "Context: {context}\n\nQuery: {query}"
+    
+    # Dataset 2: DRUID
+    if dataset_name == "druid":
+        return "Query: {query}\n\n{context}"
 
+#--- dataset helper methods end ---#
 
 def load_model(model_name, is_quantize):
 
