@@ -90,12 +90,12 @@ def load_datapoint(datapoint, dataset_name):
     # Dataset 2: DRUID
     if dataset_name == "druid":
 
-        # format claim + evidence as context
-        context = f"Claim: {datapoint["claim"]}\n\nEvidence: {datapoint["evidence"]}"
+        context = datapoint["evidence"]
 
-        # fact-checking query
+        # fact-checking query + claim
         query = "You are an expert fact-checker. You are provided with a claim and related evidence. Based only on the provided evidence, determine if the given claim is either supported or refuted."
         query += " Write a paragraph that justifies your decision and the reasons why you decided to classify the claim in the way that you did."
+        query += f"\n\nClaim: {datapoint["claim"]}"
 
     return context, query
 
@@ -107,7 +107,7 @@ def load_cc_prompt_template(dataset_name):
     
     # Dataset 2: DRUID
     if dataset_name == "druid":
-        return "Query: {query}\n\n{context}"
+        return "Query: {query}\n\nEvidence: {context}"
 
 #--- dataset helper methods end ---#
 
