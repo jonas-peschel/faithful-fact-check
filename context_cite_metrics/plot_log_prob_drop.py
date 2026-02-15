@@ -83,7 +83,7 @@ def plot_top_k_log_prob_drop(mean_drops, labels, ks, title="Top-k Log-Probabilit
     fig, ax = plt.subplots()
 
     x = np.arange(mean_drops.shape[1])
-    bar_width = 0.25
+    bar_width = 1 / (mean_drops.shape[0] + 1)
 
     multiplier = 0
     for drops, label in zip(mean_drops, labels):
