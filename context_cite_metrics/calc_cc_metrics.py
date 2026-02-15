@@ -289,14 +289,16 @@ def calc_linear_datamodeling_score(cc: ContextCiter, res: dict, attr_methods: Li
 
             # compute Spearman rank correlation
             # NOTE: catch warning for when any input is constant, i.e. answer sentence does not depend at all on
-            # the context sentences; then set the LDS score to np.nan and ignore it for calculating the mean later
+            # the context sentences; then set the LDS score to None and ignore it for calculating the mean later
+            # (None will be converted to null when saving to json, back to None when loading from json and to np.nan
+            # when converting the data to np.array when setting dtype=float where it can then be ignored using np.nanmean())
             with warnings.catch_warnings():
                 warnings.filterwarnings("error", category=ConstantInputWarning)
 
                 try:
                     LDS = spearmanr(f, f_hat).statistic.item()
                 except ConstantInputWarning:
-                    LDS = np.nan
+                    LDS = None
     
             # write result to the results dict (append to list for sentences)
             res["methods"][attr_method]["metrics"]["LDS"].append(LDS)
