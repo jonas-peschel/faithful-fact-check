@@ -5,7 +5,8 @@ from pathlib import Path
 from datasets import load_dataset, Dataset
 import torch
 import numpy as np 
-from scipy.stats import spearmanr
+import warnings
+from scipy.stats import spearmanr, ConstantInputWarning
 from dotenv import load_dotenv 
 from huggingface_hub import login
 from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
@@ -44,40 +45,73 @@ def save_json(filepath, content):
     with open(filepath, "w") as f:
         json.dump(content, f, indent=4)
 
+#--- dataset helper methods ---#
 def load_data(dataset_name, n_samples, seed=0):
 
     assert n_samples <= 1000, "Max. 1000 samples"
 
-    # Dataset 1: CNN Daily Mail
+    # Dataset 1: CNN DailyMail
     if dataset_name == "cnn_daily_mail":
-        dataset = load_dataset("abisee/cnn_dailymail", "3.0.0", split="train")
+        dataset = load_dataset("abisee/cnn_dailymail", "3.0.0", split="train")   # TODO: should better use validation split like in ContextCite paper for next runs
 
         # sample max 1000 samples and take the first n_samples
-        # that way, results from different runs with different n_samples will use the same datapoints
+        # that way, results from different runs with different n_samples will use the same datapoints in the beginning
         np.random.seed(seed)
         idxs = np.random.choice(len(dataset), 1000, replace=False)
         idxs = idxs[:n_samples]
         dataset_sampled = dataset.select(idxs)
 
+    # Dataset 2: DRUID
+    if dataset_name == "druid":
+        dataset = load_dataset("copenlu/druid", "DRUID", split="train")  # there is only a train split for this dataset
+
+        # for calculating ContextCite metrics only use examples where the evidence is sufficient and where verdict is True or False
+        dataset = dataset.filter(lambda example: (example["evidence_stance"] == "supports" or example["evidence_stance"] == "refutes") and (example["factcheck_verdict"] == "False" or example["factcheck_verdict"] == "True"))
+
+        # use only instances where the context is not extremly short (at least 5 sentences), otherwise the LDS score will probably be quite biased
+        dataset = dataset.filter(lambda example: len(sent_tokenize(example["evidence"])) >= 5)
+
+        # sample max 1000 samples and take the first n_samples
+        # that way, results from different runs with different n_samples will use the same datapoints in the beginning
+        np.random.seed(seed)
+        idxs = np.random.choice(len(dataset), 1000, replace=False)
+        idxs = idxs[:n_samples]
+        dataset_sampled = dataset.select(idxs)
+    
     return dataset_sampled
 
 def load_datapoint(datapoint, dataset_name):
     """Load context and query from a datapoint depending on the given dataset."""
 
-    # Dataset 1: CNN Daily Mail
+    # Dataset 1: CNN DailyMail
     if dataset_name == "cnn_daily_mail":
 
         context = datapoint["article"]
         query = "Please summarize the article in up to three sentences."
 
+    # Dataset 2: DRUID
+    if dataset_name == "druid":
+
+        context = datapoint["evidence"]
+
+        # fact-checking query + claim
+        query = "You are an expert fact-checker. You are provided with a claim and related evidence. Based only on the provided evidence, determine if the given claim is either supported or refuted."
+        query += " Write a paragraph that justifies your decision and the reasons why you decided to classify the claim in the way that you did."
+        query += f"\n\nClaim: {datapoint["claim"]}"
+
     return context, query
 
 def load_cc_prompt_template(dataset_name):
 
-    # Dataset 1: CNN Daily Mail
+    # Dataset 1: CNN DailyMail
     if dataset_name == "cnn_daily_mail":
         return "Context: {context}\n\nQuery: {query}"
+    
+    # Dataset 2: DRUID
+    if dataset_name == "druid":
+        return "Query: {query}\n\nEvidence: {context}"
 
+#--- dataset helper methods end ---#
 
 def load_model(model_name, is_quantize):
 
@@ -254,10 +288,18 @@ def calc_linear_datamodeling_score(cc: ContextCiter, res: dict, attr_methods: Li
             f_hat = masks @ attr_scores # (m, n_sources) x (n_sources) -> (m,)
 
             # compute Spearman rank correlation
-            LDS = spearmanr(f, f_hat).statistic
+            # NOTE: catch warning for when any input is constant, i.e. answer sentence does not depend at all on
+            # the context sentences; then set the LDS score to np.nan and ignore it for calculating the mean later
+            with warnings.catch_warnings():
+                warnings.filterwarnings("error", category=ConstantInputWarning)
+
+                try:
+                    LDS = spearmanr(f, f_hat).statistic.item()
+                except ConstantInputWarning:
+                    LDS = np.nan
     
             # write result to the results dict (append to list for sentences)
-            res["methods"][attr_method]["metrics"]["LDS"].append(LDS.item())
+            res["methods"][attr_method]["metrics"]["LDS"].append(LDS)
 
     return res
 #--- Metric Functions ---#
