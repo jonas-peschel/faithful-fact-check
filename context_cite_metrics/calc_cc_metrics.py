@@ -28,6 +28,7 @@ def parse_args():
     parser.add_argument("--results_path", type=str, default="Results/results.json", help="Path to the file where attribution scores and experiment results (metrics) are stored.")
     parser.add_argument("--n_samples", type=int, default=20, help="For how many data points to compute the metrics.")
     parser.add_argument("--m", type=int, default=128, help="How many random ablation vectors to sample for LDS calculation.")
+    parser.add_argument("--cc_batch_size", type=int, default=16, help="Batch size to use in ContextCiter for performing inference using ablated contexts.")
 
     return parser.parse_args()
 
@@ -299,6 +300,7 @@ def main(config=None):
             context = context,
             query = query,
             num_ablations = config.m,   # number of ablations for LDS calculation; doesn't matter for log-prob drop
+            batch_size = config.cc_batch_size,
             prompt_template = CC_PROMPT_TEMPLATE,
             generate_kwargs = CC_GENERATE_KWARGS,
         )
