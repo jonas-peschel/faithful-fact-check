@@ -31,7 +31,7 @@ def parse_args():
     parser.add_argument("--cc_num_ablations", type=int, nargs="+", choices=[32, 64, 128, 256], help="How many ablations to use if ContextCite is used as attribution method.")
     parser.add_argument("--results_path", type=str, default="Results/results.json", help="Path to the file where attribution scores and experiment results are stored.")
     parser.add_argument("--n_samples", type=int, default=20, help="How many data points to sample from the dataset.")
-    parser.add_argument("--cc_batch_size", type=int, default=16, help="Batch size to use in ContextCiter for performing inference using ablated contexts.")
+    parser.add_argument("--cc_batch_size", type=int, default=8, help="Batch size to use in ContextCiter for performing inference using ablated contexts.")
 
     return parser.parse_args()
 
