@@ -291,7 +291,8 @@ def calc_linear_datamodeling_score(cc: ContextCiter, res: dict, attr_methods: Li
             # NOTE: catch warning for when any input is constant, i.e. answer sentence does not depend at all on
             # the context sentences; then set the LDS score to None and ignore it for calculating the mean later
             # (None will be converted to null when saving to json, back to None when loading from json and to np.nan
-            # when converting the data to np.array when setting dtype=float where it can then be ignored using np.nanmean())
+            # when converting the data to np.array when setting dtype=float where it can then be ignored using np.nanmean()
+            # OR the entire sentence could be excluded)
             with warnings.catch_warnings():
                 warnings.filterwarnings("error", category=ConstantInputWarning)
 
