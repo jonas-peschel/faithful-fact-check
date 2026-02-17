@@ -395,30 +395,6 @@ def main(config=None):
     if config is None:
         config = parse_args()
 
-    # load or make results file
-    results_path = Path(config.results_path)
-    if not results_path.exists():
-
-        # make new results file and save metadata
-        results_path.parent.mkdir(parents=True, exist_ok=True)
-        results_path.touch()
-        results = {}
-
-        results["metadata"] = {
-            "dataset": config.dataset,
-            "model": config.model_name,
-        }
-        results["results"] = []
-    else:
-
-        # load existing results file to append the new results to
-        results = load_json(results_path)
-
-        # check that the old experiment used the same dataset and model 
-        assert results["metadata"]["dataset"] == config.dataset, "Existing results should come from the same dataset as new results to compute."
-        assert results["metadata"]["model"] == config.model_name, "Existing results should use the same language model as new results to compute."
-
-
     load_dotenv()
     HF_TOKEN = os.getenv("HF_TOKEN")
 
@@ -442,6 +418,35 @@ def main(config=None):
 
     CC_PROMPT_TEMPLATE = load_cc_prompt_template(config.dataset)
     CC_GENERATE_KWARGS = {"do_sample": False, "max_new_tokens": 512}
+
+    # load or make results file
+    results_path = Path(config.results_path)
+    if not results_path.exists():
+
+        # make new results file and save metadata
+        results_path.parent.mkdir(parents=True, exist_ok=True)
+        results_path.touch()
+        results = {}
+
+        results["metadata"] = {
+            "dataset": config.dataset,
+            "model": config.model_name,
+        }
+        results["metadata"]["cc_args"] = {
+            "batch_size": config.cc_batch_size,
+            "prompt_template": CC_PROMPT_TEMPLATE,
+            "generate_kwargs": CC_GENERATE_KWARGS,
+        }
+        results["results"] = []
+    else:
+
+        # load existing results file to append the new results to
+        results = load_json(results_path)
+
+        # check that the old experiment used the same dataset and model and ContextCiter args
+        assert results["metadata"]["dataset"] == config.dataset, "Existing results should come from the same dataset as new results to compute."
+        assert results["metadata"]["model"] == config.model_name, "Existing results should use the same language model as new results to compute."
+
 
     for idx, data_point in tqdm(enumerate(data), total=len(data)):
 
