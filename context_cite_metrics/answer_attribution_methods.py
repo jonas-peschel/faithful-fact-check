@@ -1,16 +1,14 @@
 import argparse
 import os
-import json
 from pathlib import Path
 import datasets
-from datasets import load_dataset
 import torch
 from torch import utils
 from torch.utils.data import DataLoader
 import numpy as np 
 from dotenv import load_dotenv 
 from huggingface_hub import login
-from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig, AutoModelForSequenceClassification
+from transformers import AutoTokenizer, AutoModelForSequenceClassification
 from transformers import PreTrainedModel, PreTrainedTokenizer, PreTrainedTokenizerFast
 from sentence_transformers import SentenceTransformer
 from context_cite import ContextCiter
@@ -21,6 +19,7 @@ from nltk import sent_tokenize
 nltk.download("punkt_tab")
 from typing import List, Union
 from numpy.typing import NDArray
+from utils import load_json, save_json, load_data, load_datapoint, load_cc_prompt_template, split_text, load_model
 
 def parse_args():
 
@@ -34,118 +33,6 @@ def parse_args():
     parser.add_argument("--cc_batch_size", type=int, default=8, help="Batch size to use in ContextCiter for performing inference using ablated contexts.")
 
     return parser.parse_args()
-
-def load_json(filepath):
-
-    with open(filepath) as f:
-        data = json.load(f)
-
-    return data
-
-def save_json(filepath, content):
-
-    with open(filepath, "w") as f:
-        json.dump(content, f, indent=4)
-
-#--- dataset helper methods ---#
-def load_data(dataset_name, n_samples, seed=0):
-
-    assert n_samples <= 1000, "Max. 1000 samples"
-
-    # Dataset 1: CNN DailyMail
-    if dataset_name == "cnn_daily_mail":
-        dataset = load_dataset("abisee/cnn_dailymail", "3.0.0", split="train")   # TODO: should better use validation split like in ContextCite paper for next runs
-
-        # sample max 1000 samples and take the first n_samples
-        # that way, results from different runs with different n_samples will use the same datapoints in the beginning
-        np.random.seed(seed)
-        idxs = np.random.choice(len(dataset), 1000, replace=False)
-        idxs = idxs[:n_samples]
-        dataset_sampled = dataset.select(idxs)
-
-    # Dataset 2: DRUID
-    if dataset_name == "druid":
-        dataset = load_dataset("copenlu/druid", "DRUID", split="train")  # there is only a train split for this dataset
-
-        # for calculating ContextCite metrics only use examples where the evidence is sufficient and where verdict is True or False
-        dataset = dataset.filter(lambda example: (example["evidence_stance"] == "supports" or example["evidence_stance"] == "refutes") and (example["factcheck_verdict"] == "False" or example["factcheck_verdict"] == "True"))
-
-        # use only instances where the context is not extremly short (at least 5 sentences), otherwise the LDS score will probably be quite biased
-        dataset = dataset.filter(lambda example: len(sent_tokenize(example["evidence"])) >= 5)
-
-        # sample max 1000 samples and take the first n_samples
-        # that way, results from different runs with different n_samples will use the same datapoints in the beginning
-        np.random.seed(seed)
-        idxs = np.random.choice(len(dataset), 1000, replace=False)
-        idxs = idxs[:n_samples]
-        dataset_sampled = dataset.select(idxs)
-    
-    return dataset_sampled
-
-def load_datapoint(datapoint, dataset_name):
-    """Load context and query from a datapoint depending on the given dataset."""
-
-    # Dataset 1: CNN DailyMail
-    if dataset_name == "cnn_daily_mail":
-
-        context = datapoint["article"]
-        query = "Please summarize the article in up to three sentences."
-
-    # Dataset 2: DRUID
-    if dataset_name == "druid":
-
-        context = datapoint["evidence"]
-
-        # fact-checking query + claim
-        query = "You are an expert fact-checker. You are provided with a claim and related evidence. Based only on the provided evidence, determine if the given claim is either supported or refuted."
-        query += " Write a paragraph that justifies your decision and the reasons why you decided to classify the claim in the way that you did."
-        query += f"\n\nClaim: {datapoint["claim"]}"
-
-    return context, query
-
-def load_cc_prompt_template(dataset_name):
-
-    # Dataset 1: CNN DailyMail
-    if dataset_name == "cnn_daily_mail":
-        return "Context: {context}\n\nQuery: {query}"
-    
-    # Dataset 2: DRUID
-    if dataset_name == "druid":
-        return "Query: {query}\n\nEvidence: {context}"
-
-#--- dataset helper methods end ---#
-
-def load_model(model_name, is_quantize):
-
-    quantization_config = BitsAndBytesConfig(
-        load_in_4bit=True,
-        bnb_4bit_compute_dtype=torch.float16,
-        bnb_4bit_use_double_quant=True,
-        bnb_4bit_quant_type="nf4"
-    ) if is_quantize else None
-
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
-    tokenizer.padding_side = "left" # set padding side to left for batch inference with ContextCite
-    model = AutoModelForCausalLM.from_pretrained(model_name, device_map="auto", torch_dtype=torch.float16, quantization_config=quantization_config) 
-    device = model.device
-
-    return model, tokenizer, device
-
-def split_text(text):
-    """Split model response into sentences and return sentences and corresponding start indices."""
-
-    sentences = sent_tokenize(text)
-
-    prev_end_idx = 0
-    start_idxs, end_idxs = [], []
-    for sent in sentences:
-
-        start_idx = text.find(sent, prev_end_idx)
-        start_idxs.append(start_idx)
-        prev_end_idx = start_idx + len(sent)
-        end_idxs.append(prev_end_idx)
-
-    return sentences, start_idxs, end_idxs
 
 def prepare_results_dict(cc: ContextCiter, res: dict):
     """Add key-structure to the results dict for saving the attribution scores."""
