@@ -14,7 +14,7 @@ def parse_args():
     parser.add_argument("plots_savepath", type=str, help="Path where to save the generated plots.")
     parser.add_argument("--plot_title", type=str, default="Top-k Log-Probability Drop Metric", help="Title for the plot.")
     parser.add_argument("--ks", type=int, nargs="+", choices=range(1,10), default=None, help="For which k's to plot the results.")
-    parser.add_argument("--is_error_bars", action="store_true", help="Whether to plot the error bars with the standard deviation.")
+    parser.add_argument("--is_error_bars", action="store_true", help="Whether to plot the error bars with the standard error of the mean.")
 
     return parser.parse_args()
 
@@ -59,7 +59,7 @@ def aggregate_log_prob_drops(results, ks):
 
     return mean_drops, sem_drops
 
-#--- Plotting Functions ---#
+#--- Plotting Function ---#
 def plot_top_k_log_prob_drop(mean_drops, sem_drops, labels, ks, is_error_bars=False, title="Top-k Log-Probability Drop Metric"):
     """
     Plot bar plot of top-k log-prob drop metric.
@@ -109,7 +109,7 @@ def plot_top_k_log_prob_drop(mean_drops, sem_drops, labels, ks, is_error_bars=Fa
     ax.grid(axis="y", linestyle="--", alpha=0.7)
 
     return fig
-#--- Plotting Functions ---#
+#--- Plotting Function ---#
 
 def main(config=None):
 
