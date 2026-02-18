@@ -17,7 +17,7 @@ from utils import load_json, save_json, load_data, load_datapoint, load_cc_promp
 def parse_args():
 
     parser = argparse.ArgumentParser(description="Calculate top-k log-prob drop (k=1,3,5) and linear datamodeling score for different attribution methods.") 
-    parser.add_argument("--attr_methods", type=str, nargs="+", choices=["context_cite_32", "context_cite_64", "context_cite_128", "context_cite_256", "semantic_similarity", "leave_one_out", "nli_post_hoc_naive"], default=None, help="Which answer attribution methods to calculate the metrics for.")
+    parser.add_argument("--attr_methods", type=str, nargs="+", choices=["context_cite_32", "context_cite_64", "context_cite_128", "context_cite_256", "semantic_similarity", "leave_one_out", "nli_post_hoc_naive", "nli_post_hoc_sliding_window_3", "nli_post_hoc_sliding_window_5"], default=None, help="Which answer attribution methods to calculate the metrics for.")
     parser.add_argument("--metrics", type=str, nargs="+", choices=["log_prob_drop", "LDS"], default=["log_prob_drop", "LDS"], help="Which metric(s) to compute.")
     parser.add_argument("--dataset", type=str, choices=["cnn_daily_mail", "druid"], required=True, help="Which dataset to use.")
     parser.add_argument("--model_name", type=str, choices=["meta-llama/Llama-3.1-8B-Instruct"], default="meta-llama/Llama-3.1-8B-Instruct", help="Huggingface name of model to use.")

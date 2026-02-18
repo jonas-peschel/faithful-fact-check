@@ -26,8 +26,9 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Calculate answer attribution scores using different attribution methods.")
     parser.add_argument("--dataset", type=str, choices=["cnn_daily_mail", "druid"], default=None, required=True, help="Which dataset to use.")
     parser.add_argument("--model_name", type=str, choices=["meta-llama/Llama-3.1-8B-Instruct"], default="meta-llama/Llama-3.1-8B-Instruct", help="Huggingface name of model to use.")
-    parser.add_argument("--attr_methods", type=str, nargs="+", choices=["context_cite", "semantic_similarity", "leave_one_out", "nli_post_hoc_naive"], required=True, help="Which answer attribution methods to use.")
+    parser.add_argument("--attr_methods", type=str, nargs="+", choices=["context_cite", "semantic_similarity", "leave_one_out", "nli_post_hoc_naive", "nli_post_hoc_sliding_window"], required=True, help="Which answer attribution methods to use.")
     parser.add_argument("--cc_num_ablations", type=int, nargs="+", choices=[32, 64, 128, 256], help="How many ablations to use if ContextCite is used as attribution method.")
+    parser.add_argument("--sliding_window_lenghts", type=int, nargs="+", choices=[3,5], help="How many sentences to include per context window if NLI with sliding windows is used as attribution method.")
     parser.add_argument("--results_path", type=str, default="Results/results.json", help="Path to the file where attribution scores and experiment results are stored.")
     parser.add_argument("--n_samples", type=int, default=20, help="How many data points to sample from the dataset.")
     parser.add_argument("--cc_batch_size", type=int, default=8, help="Batch size to use in ContextCiter for performing inference using ablated contexts.")
@@ -274,6 +275,112 @@ def compute_attributions_post_hoc_naive(cc: ContextCiter, nli_tokenizer: Union[P
     }
 
     return res
+
+def compute_attributions_post_hoc_sliding_window(cc: ContextCiter, sliding_window_lengths: List[int], 
+                                                 nli_tokenizer: Union[PreTrainedTokenizer, PreTrainedTokenizerFast], 
+                                                 nli_model: PreTrainedModel, res: dict):
+    """
+    Compute answer attribution scores using post-hoc attribution with the DeBERTa model for natural language 
+    inference for each sentence in the model answer. We take as attribution scores the predicted probability
+    for entailment from the NLI model using the answer sentence to attribute as premise and parts of the context
+    as hypothesis. We use a sliding window approach to use a specified number of adjacent sentences as context
+    and compute the attribution scores for the individual sentences by averaging all scores for the windows that
+    the sentence was included in.
+    """
+
+    class NLIDatasetSlidingWindows(utils.data.Dataset):
+        """Contains all pairs of sentences between a single answer sentence and all context windows."""
+
+        def __init__(self, answer_sent: str, context_windows: List[str]):
+            self.answer_sent = answer_sent
+            self.context_windows = context_windows 
+
+        def __len__(self):
+            return len(self.context_windows) 
+
+        def __getitem__(self, idx):
+            return self.answer_sent, self.context_windows[idx]
+        
+    def get_context_windows(source_sentences, window_length):
+        """
+        Group the source sentences into chunks/windows of _window_length_ sentences.
+        Add padding such that we are starting and ending with chunks of single sentences.
+        """
+
+        padding = 2 * (window_length // 2)  # len(context_windows) = len(source_sentences) + padding
+
+        start_idxs = np.arange(-padding, len(source_sentences))
+        start_idxs = np.where(start_idxs < 0, 0, start_idxs) # minimum starting index is 0
+        end_idxs = np.arange(1, len(source_sentences)+1+padding)
+        end_idxs = np.where(end_idxs > len(source_sentences), len(source_sentences), end_idxs)    # maximum ending index is len(source_sentences), not strictly necessary but for understanding
+
+        context_windows = []
+        for start_idx, end_idx in zip(start_idxs, end_idxs):
+            context_windows.append(" ".join(source_sentences[start_idx:end_idx]))
+
+        return context_windows
+        
+    def aggregate_windows(scores, window_length):
+        """
+        Aggregate scores (entailment probabilities) for the windows to individual sentences (mean over the window scores where the sentence was in).
+        Equivalent to 1D conv with kernel = 1/window_length * np.ones(window_length) with no padding.
+        """
+
+        padding = 2 * (window_length // 2)   # number of entries that get dropped (len(sources) = len(scores) - padding)
+
+        aggregated_scores = []
+        for i in range(len(scores)-padding):
+            aggregated_scores.append(np.mean(scores[i:i+window_length]))
+
+        return np.array(aggregated_scores)
+
+
+    answer = cc.response
+    sentences, _, _ = split_text(answer)
+
+    for window_length in sliding_window_lengths:
+
+        context_windows = get_context_windows(cc.sources, window_length)
+
+        attr_scores = []
+        for sent in sentences:
+
+            # use torch dataloader for batch processing
+            dataset = NLIDatasetSlidingWindows(sent, context_windows)
+            dataloader = DataLoader(dataset, shuffle=False, batch_size=32)
+
+            entailment_probs = []
+            for answer_sent, context_sents in dataloader:
+
+                input = nli_tokenizer(
+                    list(context_sents),
+                    list(answer_sent),
+                    padding=True,
+                    truncation=True,
+                    return_tensors="pt",
+                ).to(nli_model.device)
+
+                with torch.inference_mode():
+                    output = nli_model(**input)
+
+                probs = torch.softmax(output.logits, axis=1)   # convert to probabilities
+                entailment_prob = probs[:,0]    # only use predicted prob for entailment
+                entailment_probs.append(entailment_prob.cpu())
+
+            entailment_probs = np.concat(entailment_probs, axis=0)  # concatenate results from all batches
+
+            # aggregate scores
+            attr_scores_sent = aggregate_windows(entailment_probs, window_length)
+
+            attr_scores.append(attr_scores_sent.tolist())   # save results as list for json compatibility
+
+        # write results for each window length to results dict
+        res["methods"][f"nli_post_hoc_sliding_window_{window_length}"] = {
+            "attr_scores": attr_scores,
+        }
+
+    return res
+
 #--- Answer Attribution Methods ---#
 
 
@@ -297,7 +404,7 @@ def main(config=None):
         sentence_embedding_model = SentenceTransformer("all-mpnet-base-v2")
 
     # load DeBERTa NLI model for post-hoc answer attribution
-    if "nli_post_hoc_naive" in config.attr_methods:
+    if "nli_post_hoc_naive" in config.attr_methods or "nli_post_hoc_sliding_window" in config.attr_methods:
         model_name = "MoritzLaurer/DeBERTa-v3-large-mnli-fever-anli-ling-wanli"
         device = "cuda" if torch.cuda.is_available() else "cpu"
         nli_tokenizer = AutoTokenizer.from_pretrained(model_name)
@@ -381,6 +488,10 @@ def main(config=None):
         if "nli_post_hoc_naive" in config.attr_methods:
 
             data_point_results = compute_attributions_post_hoc_naive(cc, nli_tokenizer, nli_model, data_point_results)
+
+        if "nli_post_hoc_sliding_window" in config.attr_methods:
+
+            data_point_results = compute_attributions_post_hoc_sliding_window(cc, config.sliding_window_lenghts, nli_tokenizer, nli_model, data_point_results)
 
 
         # add results for the data point to the results
