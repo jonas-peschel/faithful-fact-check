@@ -28,7 +28,7 @@ def parse_args():
     parser.add_argument("--model_name", type=str, choices=["meta-llama/Llama-3.1-8B-Instruct"], default="meta-llama/Llama-3.1-8B-Instruct", help="Huggingface name of model to use.")
     parser.add_argument("--attr_methods", type=str, nargs="+", choices=["context_cite", "semantic_similarity", "leave_one_out", "nli_post_hoc_naive", "nli_post_hoc_sliding_window"], required=True, help="Which answer attribution methods to use.")
     parser.add_argument("--cc_num_ablations", type=int, nargs="+", choices=[32, 64, 128, 256], help="How many ablations to use if ContextCite is used as attribution method.")
-    parser.add_argument("--sliding_window_lenghts", type=int, nargs="+", choices=[3,5], help="How many sentences to include per context window if NLI with sliding windows is used as attribution method.")
+    parser.add_argument("--sliding_window_lengths", type=int, nargs="+", choices=[3,5], help="How many sentences to include per context window if NLI with sliding windows is used as attribution method.")
     parser.add_argument("--results_path", type=str, default="Results/results.json", help="Path to the file where attribution scores and experiment results are stored.")
     parser.add_argument("--n_samples", type=int, default=20, help="How many data points to sample from the dataset.")
     parser.add_argument("--cc_batch_size", type=int, default=8, help="Batch size to use in ContextCiter for performing inference using ablated contexts.")
