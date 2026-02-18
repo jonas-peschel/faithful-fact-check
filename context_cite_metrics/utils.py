@@ -116,7 +116,7 @@ def load_model(model_name, is_quantize):
 
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     tokenizer.padding_side = "left" # set padding side to left for batch inference with ContextCite
-    model = AutoModelForCausalLM.from_pretrained(model_name, device_map="auto", torch_dtype=torch.float16, quantization_config=quantization_config) 
+    model = AutoModelForCausalLM.from_pretrained(model_name, device_map="auto", dtype=torch.float16, quantization_config=quantization_config) 
     device = model.device
 
     return model, tokenizer, device
