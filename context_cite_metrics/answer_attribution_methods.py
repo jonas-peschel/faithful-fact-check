@@ -491,7 +491,7 @@ def main(config=None):
 
         if "nli_post_hoc_sliding_window" in config.attr_methods:
 
-            data_point_results = compute_attributions_post_hoc_sliding_window(cc, config.sliding_window_lenghts, nli_tokenizer, nli_model, data_point_results)
+            data_point_results = compute_attributions_post_hoc_sliding_window(cc, config.sliding_window_lengths, nli_tokenizer, nli_model, data_point_results)
 
 
         # add results for the data point to the results
