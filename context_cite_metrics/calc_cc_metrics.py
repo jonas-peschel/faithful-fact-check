@@ -17,7 +17,7 @@ from utils import load_json, save_json, load_data, load_datapoint, load_cc_promp
 def parse_args():
 
     parser = argparse.ArgumentParser(description="Calculate top-k log-prob drop (k=1,3,5) and linear datamodeling score for different attribution methods.") 
-    parser.add_argument("--attr_methods", type=str, nargs="+", choices=["context_cite_32", "context_cite_64", "context_cite_128", "context_cite_256", "semantic_similarity", "leave_one_out", "nli_post_hoc_naive", "nli_post_hoc_sliding_window_3", "nli_post_hoc_sliding_window_5"], default=None, help="Which answer attribution methods to calculate the metrics for.")
+    parser.add_argument("--attr_methods", type=str, nargs="+", choices=["context_cite_32", "context_cite_64", "context_cite_128", "context_cite_256", "semantic_similarity", "leave_one_out", "nli_post_hoc_naive", "nli_post_hoc_sliding_window_3", "nli_post_hoc_sliding_window_5", "llm_post_hoc"], default=None, help="Which answer attribution methods to calculate the metrics for.")
     parser.add_argument("--metrics", type=str, nargs="+", choices=["log_prob_drop", "LDS"], default=["log_prob_drop", "LDS"], help="Which metric(s) to compute.")
     parser.add_argument("--dataset", type=str, choices=["cnn_daily_mail", "druid"], required=True, help="Which dataset to use.")
     parser.add_argument("--model_name", type=str, choices=["meta-llama/Llama-3.1-8B-Instruct"], default="meta-llama/Llama-3.1-8B-Instruct", help="Huggingface name of model to use.")
@@ -80,7 +80,7 @@ def calc_top_k_log_prob_drop(cc: ContextCiter, res: dict, attr_methods: List[str
 
     # loop through attribution methods and sentences, then for each sentence compute
     # top-k log-prob drop for k=1,3,5
-    attr_methods = res["methods"].keys() if attr_methods is None else attr_methods
+    attr_methods = attr_methods or res["methods"].keys()
     for attr_method in attr_methods:
 
         # prepare results dict
@@ -97,10 +97,26 @@ def calc_top_k_log_prob_drop(cc: ContextCiter, res: dict, attr_methods: List[str
             # 0. load attribution scores
             attr_scores = res["methods"][attr_method]["attr_scores"][sent_idx] 
 
+            # special case: attribution via prompting LLM; then we have different attribution scores for each k (except k=0 where we have no attributions)
+            if attr_method == "llm_post_hoc":
+                attr_scores_ks = [attr_scores[k] if k != 0 else np.zeros(len(cc.sources)) for k in ks]
+
+                # check if the LLM generated any invalid citations for any k, i.e. if there are entries that are None
+                if np.any([attr_score is None for attr_score in attr_scores_ks]):
+                    # skip calculations for the current sentence and write None as result
+                    for i,k in enumerate(ks[1:], start=1):
+                        res["methods"][attr_method]["metrics"]["top_k_drop"][f"top_{k}_drop"].append(None)
+                        
+                    continue
+
+            else:   # simply repeat attribution scores for how many different ks we have for all other attribution methods since they are identical
+                attr_scores_ks = len(ks) * [attr_scores]
+
             # 1. create masks for k=1,3,5 and create one full mask where no sources are ablated (k=0) for computing the difference 
             masks = []
-            for k in ks:
-                masks.append(create_mask(attr_scores, k))
+            for attr_scores_k, k in zip(attr_scores_ks, ks):
+
+                masks.append(create_mask(attr_scores_k, k))
 
             # 2. create "dataset" with input tokens for different ablations and output tokens (labels) 
             dataset = create_dataset(cc, masks)
@@ -147,6 +163,10 @@ def calc_linear_datamodeling_score(cc: ContextCiter, res: dict, attr_methods: Li
     sentences, start_idxs, end_idxs = split_text(answer)
 
     attr_methods = res["methods"].keys() if attr_methods is None else attr_methods
+    if "llm_post_hoc" in attr_methods:
+        warnings.warn("Can not calculate linear datamodeling score for LLM-post-hoc attribution method. Skipping calculations...")
+        attr_methods.remove("llm_post_hoc")
+
     res = prepare_results_dict(res, attr_methods)
 
     # get logit probs for each context ablation and answer token

@@ -14,6 +14,7 @@ from sentence_transformers import SentenceTransformer
 from context_cite import ContextCiter
 from context_cite.utils import _get_response_logit_probs, aggregate_logit_probs
 from tqdm.auto import tqdm
+import re
 import nltk
 from nltk import sent_tokenize
 nltk.download("punkt_tab")
@@ -26,7 +27,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Calculate answer attribution scores using different attribution methods.")
     parser.add_argument("--dataset", type=str, choices=["cnn_daily_mail", "druid"], default=None, required=True, help="Which dataset to use.")
     parser.add_argument("--model_name", type=str, choices=["meta-llama/Llama-3.1-8B-Instruct"], default="meta-llama/Llama-3.1-8B-Instruct", help="Huggingface name of model to use.")
-    parser.add_argument("--attr_methods", type=str, nargs="+", choices=["context_cite", "semantic_similarity", "leave_one_out", "nli_post_hoc_naive", "nli_post_hoc_sliding_window"], required=True, help="Which answer attribution methods to use.")
+    parser.add_argument("--attr_methods", type=str, nargs="+", choices=["context_cite", "semantic_similarity", "leave_one_out", "nli_post_hoc_naive", "nli_post_hoc_sliding_window", "llm_post_hoc"], required=True, help="Which answer attribution methods to use.")
     parser.add_argument("--cc_num_ablations", type=int, nargs="+", choices=[32, 64, 128, 256], help="How many ablations to use if ContextCite is used as attribution method.")
     parser.add_argument("--sliding_window_lengths", type=int, nargs="+", choices=[3,5], help="How many sentences to include per context window if NLI with sliding windows is used as attribution method.")
     parser.add_argument("--results_path", type=str, default="Results/results.json", help="Path to the file where attribution scores and experiment results are stored.")
@@ -213,7 +214,7 @@ def compute_attributions_leave_one_out(cc: ContextCiter, res: dict):
 
     return res
 
-def compute_attributions_post_hoc_naive(cc: ContextCiter, nli_tokenizer: Union[PreTrainedTokenizer, PreTrainedTokenizerFast], 
+def compute_attributions_nli_post_hoc_naive(cc: ContextCiter, nli_tokenizer: Union[PreTrainedTokenizer, PreTrainedTokenizerFast], 
                                         nli_model: PreTrainedModel, res: dict):
     """
     Compute answer attribution scores using post-hoc attribution with the DeBERTa model for natural language 
@@ -276,7 +277,7 @@ def compute_attributions_post_hoc_naive(cc: ContextCiter, nli_tokenizer: Union[P
 
     return res
 
-def compute_attributions_post_hoc_sliding_window(cc: ContextCiter, sliding_window_lengths: List[int], 
+def compute_attributions_nli_post_hoc_sliding_window(cc: ContextCiter, sliding_window_lengths: List[int], 
                                                  nli_tokenizer: Union[PreTrainedTokenizer, PreTrainedTokenizerFast], 
                                                  nli_model: PreTrainedModel, res: dict):
     """
@@ -378,6 +379,131 @@ def compute_attributions_post_hoc_sliding_window(cc: ContextCiter, sliding_windo
         res["methods"][f"nli_post_hoc_sliding_window_{window_length}"] = {
             "attr_scores": attr_scores,
         }
+
+    return res
+
+def compute_attributions_llm_post_hoc(cc: ContextCiter, model: PreTrainedModel, tokenizer: Union[PreTrainedTokenizer, PreTrainedTokenizerFast], res: dict):
+    """
+    Generate citations by prompting an LLM for all answer sentences. The model is prompted to generate either
+    k=1,3,5 citations to the top-k most relevant source sentences. The cited source sentences get assigned an 
+    attribution score of 1, the others are assigned a score of 0. The scores can only be used to compute the 
+    top-k log-probability drop but not the linear datamodeling score since this method does not generate an
+    order of importance for all source sentences.
+    """
+
+    def get_prompt_text(answer_sentence, context_sentences, k):
+
+        system_prompt_text = (
+            "You are an expert fact-checker. You are given a statement and sources in the form of a list of source sentences "
+            "numbered with sentence indices. The source sentences contain information which is more or less relevant for the given statement. Your task is "
+            "to identify the exact sentences from the provided list of source sentences that are most relevant for the given statement and that you would "
+            "cite as sources supporting the statement. You must only use the provided context to solve this task and respond only with the sentence indices "
+            "inside square brackets."
+        )
+
+        user_prompt_template = (
+            "Task: Identify the top-{k} most relevant sentences from the provided list of source sentences that are relevant for the provided statement. " 
+            "Provide your answer as citations formatted as the sentence indices inside square brackets, e.g. {example_citations}, where {chars} represent " 
+            "the sentence indices.\n\nSource sentences: {context_sentences}\n\nStatement: {answer_sentence}\n\nCitations:"
+        )
+
+        # format context sentences with sentence indices
+        context_sentences_numbered = []
+        for i, sent in enumerate(context_sentences, start=1):
+            context_sentences_numbered.append(f"[{i}] {sent}")
+        context_sentences_numbered = " ".join(context_sentences_numbered)
+
+        example_citations = "".join([f"[{char}]" for char in "abcde"[:k]])
+        chars = ", ".join("abcde"[:k])
+
+        user_prompt_text = user_prompt_template.format(k=k, example_citations=example_citations, chars=chars, 
+                                                       context_sentences=context_sentences_numbered, answer_sentence=answer_sentence)
+
+        return system_prompt_text, user_prompt_text 
+    
+    def get_prompt_ids(system_prompt_text, user_prompt_text, model, tokenizer, device):
+
+        # use appropriate chat template depending on the model
+        if model.config._name_or_path == "meta-llama/Llama-3.1-8B-Instruct":
+
+            messages = [
+                {'role': 'system',
+                'content': system_prompt_text},
+                {'role': 'user',
+                'content': user_prompt_text}
+            ]
+
+            prompt_ids = tokenizer.apply_chat_template(
+                messages,
+                add_generation_prompt=True,
+                return_tensors="pt",
+            ).to(device)
+
+        return prompt_ids
+    
+    def extract_sentence_indices(model_answer, k, n_sources):
+
+        # extract indices with simple reg_ex
+        reg_ex = re.compile(r"\[\s*(\d+)\s*\]")
+        sentence_indices = reg_ex.findall(model_answer)
+
+        sentence_indices = np.array(sentence_indices)
+
+        # validate
+        if len(sentence_indices) < k:
+            return None
+        else:
+            sentence_indices = sentence_indices[:k] # if too many citations were generated still count as valid and take first k
+
+        if np.any(sentence_indices <= 0) or np.any(sentence_indices > n_sources):
+            return None
+
+        return sentence_indices 
+
+
+    answer = cc.response
+    sentences, _, _ = split_text(answer)
+
+    CITATION_GENERATION_KWARGS = {"do_sample": False, "max_new_tokens": 30}
+    ks = [1,3,5]    # how many sources to cite
+
+    attr_scores = []
+    model_generations = []
+    for sent in sentences:
+
+        attr_scores_sent = {}   # for LLM post-hoc citation the attribution scores for one sentence is a dict with entries for k=1,3,5
+        model_generations_sent = {}
+
+        for k in ks:
+
+            # build prompt and perform inference
+            system_prompt_text, user_prompt_text = get_prompt_text(sent, cc.sources, k)
+            input_ids = get_prompt_ids(system_prompt_text, user_prompt_text, model, tokenizer, model.device)
+            output_ids = model.generate(**input_ids, **CITATION_GENERATION_KWARGS)
+            output_text = tokenizer.decode(output_ids.squeeze()[input_ids["input_ids"].shape[1]:])
+
+            model_generations_sent[k] = output_text
+
+            # extract the sentence indices for the cited sentences from the model answer & check if they are valid
+            sentence_indices = extract_sentence_indices(output_text, k, len(cc.sources))
+
+            if sentence_indices: 
+                sentence_indices = sentence_indices - 1 # sub 1 to get array indices since the source indices start with 1 instead of 0
+                attr_scores_sent_k = np.zeros(len(cc.sources))
+                attr_scores_sent_k[sentence_indices] = 1    # set attr_scores to 1 for all cited sentences, else 0
+                attr_scores_sent[k] = attr_scores_sent_k.tolist()
+            else:
+                attr_scores_sent[k] = None  
+
+        attr_scores.append(attr_scores_sent)
+        model_generations.append(model_generations_sent)
+
+
+    # write results to results dict
+    res["methods"][f"llm_post_hoc"] = {
+        "attr_scores": attr_scores,
+        "model_generations": model_generations,
+    }
 
     return res
 
@@ -487,11 +613,15 @@ def main(config=None):
 
         if "nli_post_hoc_naive" in config.attr_methods:
 
-            data_point_results = compute_attributions_post_hoc_naive(cc, nli_tokenizer, nli_model, data_point_results)
+            data_point_results = compute_attributions_nli_post_hoc_naive(cc, nli_tokenizer, nli_model, data_point_results)
 
         if "nli_post_hoc_sliding_window" in config.attr_methods:
 
-            data_point_results = compute_attributions_post_hoc_sliding_window(cc, config.sliding_window_lengths, nli_tokenizer, nli_model, data_point_results)
+            data_point_results = compute_attributions_nli_post_hoc_sliding_window(cc, config.sliding_window_lengths, nli_tokenizer, nli_model, data_point_results)
+
+        if "llm_post_hoc" in config.attr_methods:
+
+            data_point_results = compute_attributions_llm_post_hoc(cc, model, tokenizer, data_point_results)
 
 
         # add results for the data point to the results
