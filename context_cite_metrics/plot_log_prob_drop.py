@@ -53,7 +53,12 @@ def aggregate_log_prob_drops(results, ks):
         drops_method = np.concat(drops_method, axis=1)  # (n_Ks, n_sentences)
         drops.append(drops_method)
 
-    drops = np.array(drops)
+    drops = np.array(drops, dtype=float) # (n_methods, n_Ks, n_sentences); # using dtype=float to convert None values back to np.nan
+    # delete any columns (i.e. answer sentences) for which at least one entry is invalid (NaN)
+    mask = np.all(~np.isnan(drops), axis=(0,1))
+    print(f"Dropped {drops.shape[2]-(mask.sum())}/{drops.shape[2]} sentences with NaN values.")
+    drops = drops[:,:,mask]
+
     mean_drops = drops.mean(axis=2) # (n_methods, n_Ks)
     sem_drops = drops.std(axis=2) / np.sqrt(drops.shape[2]) # sem: standard error of the mean
 
