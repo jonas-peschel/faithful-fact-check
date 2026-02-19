@@ -447,6 +447,7 @@ def compute_attributions_llm_post_hoc(cc: ContextCiter, model: PreTrainedModel, 
         reg_ex = re.compile(r"\[\s*(\d+)\s*\]")
         sentence_indices = reg_ex.findall(model_answer)
 
+        sentence_indices = [int(idx) for idx in sentence_indices]
         sentence_indices = np.array(sentence_indices)
 
         # validate
