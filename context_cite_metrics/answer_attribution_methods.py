@@ -488,7 +488,7 @@ def compute_attributions_llm_post_hoc(cc: ContextCiter, model: PreTrainedModel, 
             # extract the sentence indices for the cited sentences from the model answer & check if they are valid
             sentence_indices = extract_sentence_indices(output_text, k, len(cc.sources))
 
-            if sentence_indices: 
+            if sentence_indices is not None: 
                 sentence_indices = sentence_indices - 1 # sub 1 to get array indices since the source indices start with 1 instead of 0
                 attr_scores_sent_k = np.zeros(len(cc.sources))
                 attr_scores_sent_k[sentence_indices] = 1    # set attr_scores to 1 for all cited sentences, else 0
