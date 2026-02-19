@@ -398,11 +398,11 @@ def compute_attributions_llm_post_hoc(cc: ContextCiter, model: PreTrainedModel, 
             "numbered with sentence indices. The source sentences contain information which is more or less relevant for the given statement. Your task is "
             "to identify the exact sentences from the provided list of source sentences that are most relevant for the given statement and that you would "
             "cite as sources supporting the statement. You must only use the provided context to solve this task and respond only with the sentence indices "
-            "inside square brackets."
+            "inside square brackets. You must only provide the specified number of sentence indices and end your answer immediately after doing so."
         )
 
         user_prompt_template = (
-            "Task: Identify the top-{k} most relevant sentences from the provided list of source sentences that are relevant for the provided statement. " 
+            "Task: Identify the {k} most relevant sentences from the provided list of source sentences that are relevant for the provided statement. " 
             "Provide your answer as citations formatted as the sentence indices inside square brackets, e.g. {example_citations}, where {chars} represent " 
             "the sentence indices.\n\nSource sentences: {context_sentences}\n\nStatement: {answer_sentence}\n\nCitations:"
         )
