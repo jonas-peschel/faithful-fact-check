@@ -541,7 +541,7 @@ def compute_attributions_llm_post_hoc(cc: ContextCiter, model: PreTrainedModel, 
             output_ids = model.generate(**input_ids, **CITATION_GENERATION_KWARGS)
             output_text = tokenizer.decode(output_ids.squeeze()[input_ids["input_ids"].shape[1]:])
 
-            model_generations_sent[k] = output_text
+            model_generations_sent[f"{k}"] = output_text
 
             # extract the sentence indices for the cited sentences from the model answer & check if they are valid
             sentence_indices = extract_sentence_indices(output_text, k, len(cc.sources))
@@ -550,9 +550,9 @@ def compute_attributions_llm_post_hoc(cc: ContextCiter, model: PreTrainedModel, 
                 sentence_indices = sentence_indices - 1 # sub 1 to get array indices since the source indices start with 1 instead of 0
                 attr_scores_sent_k = np.zeros(len(cc.sources))
                 attr_scores_sent_k[sentence_indices] = 1    # set attr_scores to 1 for all cited sentences, else 0
-                attr_scores_sent[k] = attr_scores_sent_k.tolist()
+                attr_scores_sent[f"{k}"] = attr_scores_sent_k.tolist()
             else:
-                attr_scores_sent[k] = None  
+                attr_scores_sent[f"{k}"] = None  
 
         attr_scores.append(attr_scores_sent)
         model_generations.append(model_generations_sent)
