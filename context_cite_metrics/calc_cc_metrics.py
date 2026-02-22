@@ -4,6 +4,7 @@ from pathlib import Path
 from datasets import Dataset
 import numpy as np 
 import warnings
+from copy import copy 
 from scipy.stats import spearmanr, ConstantInputWarning
 from dotenv import load_dotenv 
 from huggingface_hub import login
@@ -166,11 +167,11 @@ def calc_linear_datamodeling_score(cc: ContextCiter, res: dict, attr_methods: Li
 
     if "llm_post_hoc" in attr_methods:
         warnings.warn("Can not calculate linear datamodeling score for LLM-post-hoc attribution method. Skipping calculations...")
-        attr_methods.remove("llm_post_hoc")
+        attr_methods = copy(attr_methods).remove("llm_post_hoc")
 
     if "nli_post_hoc_greedy_sampling" in attr_methods:
         warnings.warn("Can not calculate linear datamodeling score for NLI-based post-hoc attribution method with greedy sampling. Skipping calculations...")
-        attr_methods.remove("nli_post_hoc_greedy_sampling")
+        attr_methods = copy(attr_methods).remove("nli_post_hoc_greedy_sampling")
 
     res = prepare_results_dict(res, attr_methods)
 
