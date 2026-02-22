@@ -2,6 +2,7 @@ import json
 from datasets import load_dataset
 import numpy as np
 import torch
+from copy import copy
 from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
 import nltk
 from nltk import sent_tokenize
@@ -157,18 +158,26 @@ METH2COL = {
         "context_cite_32": '#accde5',
         "semantic_similarity": '#2ca02c',
         "leave_one_out": '#9467bd',
-        "nli_post_hoc_naive": '#7f7f7f',
+        "nli_post_hoc_naive": '#d3d3d3',
+        "nli_post_hoc_sliding_window_3": '#7f7f7f',
+        "nli_post_hoc_sliding_window_5": "#484848",
+        "nli_post_hoc_greedy_sampling": '#333333',
+        "llm_post_hoc": '#bcbd22',
     }
 
 def order_results(mean_results, std_results, labels):
 
-    true_order = ["context_cite_256", "context_cite_128", "context_cite_64", "context_cite_32", "semantic_similarity", "leave_one_out", "nli_post_hoc_naive"]
+    true_order = ["context_cite_256", "context_cite_128", "context_cite_64", "context_cite_32", 
+                  "semantic_similarity", "leave_one_out", "nli_post_hoc_naive", "nli_post_hoc_sliding_window_3", 
+                  "nli_post_hoc_sliding_window_5", "nli_post_hoc_greedy_sampling", "llm_post_hoc"]
 
+    adapted_true_order = copy(true_order)
     for method in true_order:
         if method not in labels:
-            true_order.remove(method)
+            adapted_true_order.remove(method)
+
     idxs = []
-    for method in true_order:
+    for method in adapted_true_order:
         idxs.append(labels.index(method))
 
     ordered_mean = mean_results[idxs]

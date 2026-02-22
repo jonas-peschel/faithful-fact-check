@@ -16,7 +16,7 @@ def parse_args():
 
     return parser.parse_args()
 
-def aggregate_lds(results):
+def aggregate_lds(results, attr_methods):
     """
     Calculate mean linear datamodeling score over all sentences in the data 
     for each answer attribution method.
@@ -24,6 +24,8 @@ def aggregate_lds(results):
     Args:
         results (Dict):
             Contains the results from metrics computations.
+        attr_methods (List[str]):
+            Attribution methods for which to calculate LDS.
 
     Returns:
         mean_lds (NDArray[float]):
@@ -34,8 +36,7 @@ def aggregate_lds(results):
     """
 
     lds = []
-    methods = list(results["results"][0]["methods"].keys())
-    for method in methods:
+    for method in attr_methods:
         lds_method = []
         for data_point_result in results["results"]:
             lds_method.extend(data_point_result["methods"][method]["metrics"]["LDS"])
@@ -113,11 +114,18 @@ def main(config=None):
     results_path = Path(config.results_path)
     results = load_json(results_path)
 
+    # get attribution methods and remove methods for which no LDS can be calculated
+    attr_methods = list(results["results"][0]["methods"].keys())
+    if "llm_post_hoc" in attr_methods:
+        attr_methods.remove("llm_post_hoc")
+    if "nli_post_hoc_greedy_sampling" in attr_methods:
+        attr_methods.remove("nli_post_hoc_greedy_sampling")
+
     # aggregate mean and standard error of the mean over the data
-    mean_lds, sem_lds = aggregate_lds(results)
+    mean_lds, sem_lds = aggregate_lds(results, attr_methods)
 
     # plot and save
-    fig = plot_linear_datamodeling_score(mean_lds, sem_lds, labels=list(results["results"][0]["methods"].keys()), 
+    fig = plot_linear_datamodeling_score(mean_lds, sem_lds, labels=attr_methods, 
                                          dataset_name=results["metadata"]["dataset"], is_error_bars=config.is_error_bars, title=config.plot_title)
 
     plots_savepath = Path(config.plots_savepath)
