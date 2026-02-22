@@ -429,7 +429,7 @@ def compute_attributions_nli_post_hoc_greedy_sampling(cc: ContextCiter, nli_toke
             dataset.update(new_cited_sentence_idx)
 
         # set the attribution scores to 1,2,...,k according to their order (first citation gets highest score)
-        attr_scores_sent = np.zeros(len(cc.sources))
+        attr_scores_sent = list(np.zeros(len(cc.sources)))
         for score, idx in enumerate(dataset.cited_sentences_idxs[::-1], start=1):
             attr_scores_sent[idx] = score
 
@@ -437,7 +437,7 @@ def compute_attributions_nli_post_hoc_greedy_sampling(cc: ContextCiter, nli_toke
 
         # write results to results dict
         res["methods"]["nli_post_hoc_greedy_sampling"] = {
-            "attr_scores": attr_scores.tolist(),
+            "attr_scores": attr_scores,
         }
 
     return res
