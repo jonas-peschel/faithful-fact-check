@@ -20,14 +20,14 @@ from nltk import sent_tokenize
 nltk.download("punkt_tab")
 from typing import List, Union
 from numpy.typing import NDArray
-from utils import load_json, save_json, load_data, load_datapoint, load_cc_prompt_template, split_text, load_model
+from utils import load_json, save_json, load_data, load_datapoint, load_cc_prompt_template, split_text, load_model, get_nli_entailment_probs
 
 def parse_args():
 
     parser = argparse.ArgumentParser(description="Calculate answer attribution scores using different attribution methods.")
     parser.add_argument("--dataset", type=str, choices=["cnn_daily_mail", "druid"], default=None, required=True, help="Which dataset to use.")
     parser.add_argument("--model_name", type=str, choices=["meta-llama/Llama-3.1-8B-Instruct"], default="meta-llama/Llama-3.1-8B-Instruct", help="Huggingface name of model to use.")
-    parser.add_argument("--attr_methods", type=str, nargs="+", choices=["context_cite", "semantic_similarity", "leave_one_out", "nli_post_hoc_naive", "nli_post_hoc_sliding_window", "llm_post_hoc"], required=True, help="Which answer attribution methods to use.")
+    parser.add_argument("--attr_methods", type=str, nargs="+", choices=["context_cite", "semantic_similarity", "leave_one_out", "nli_post_hoc_naive", "nli_post_hoc_sliding_window", "nli_post_hoc_greedy_sampling", "llm_post_hoc"], required=True, help="Which answer attribution methods to use.")
     parser.add_argument("--cc_num_ablations", type=int, nargs="+", choices=[32, 64, 128, 256], help="How many ablations to use if ContextCite is used as attribution method.")
     parser.add_argument("--sliding_window_lengths", type=int, nargs="+", choices=[3,5], help="How many sentences to include per context window if NLI with sliding windows is used as attribution method.")
     parser.add_argument("--results_path", type=str, default="Results/results.json", help="Path to the file where attribution scores and experiment results are stored.")
@@ -248,25 +248,8 @@ def compute_attributions_nli_post_hoc_naive(cc: ContextCiter, nli_tokenizer: Uni
         dataset = NLIDataset(sent, cc.sources)
         dataloader = DataLoader(dataset, shuffle=False, batch_size=32)
 
-        entailment_probs = []
-        for answer_sent, context_sents in dataloader:
-
-            input = nli_tokenizer(
-                list(context_sents),
-                list(answer_sent),
-                padding=True,
-                truncation=True,
-                return_tensors="pt",
-            ).to(nli_model.device)
-
-            with torch.inference_mode():
-                output = nli_model(**input)
-
-            probs = torch.softmax(output.logits, axis=1)   # convert to probabilities
-            entailment_prob = probs[:,0]    # only use predicted prob for entailment
-            entailment_probs.append(entailment_prob.cpu())
-
-        entailment_probs = np.concat(entailment_probs, axis=0)  # concatenate results from all batches
+        # get entailment probs between answer sentence and all context sentences
+        entailment_probs = get_nli_entailment_probs(nli_tokenizer, nli_model, dataloader)
 
         attr_scores.append(entailment_probs.tolist())   # save results as list for json compatibility
 
@@ -350,25 +333,8 @@ def compute_attributions_nli_post_hoc_sliding_window(cc: ContextCiter, sliding_w
             dataset = NLIDatasetSlidingWindows(sent, context_windows)
             dataloader = DataLoader(dataset, shuffle=False, batch_size=32)
 
-            entailment_probs = []
-            for answer_sent, context_sents in dataloader:
-
-                input = nli_tokenizer(
-                    list(context_sents),
-                    list(answer_sent),
-                    padding=True,
-                    truncation=True,
-                    return_tensors="pt",
-                ).to(nli_model.device)
-
-                with torch.inference_mode():
-                    output = nli_model(**input)
-
-                probs = torch.softmax(output.logits, axis=1)   # convert to probabilities
-                entailment_prob = probs[:,0]    # only use predicted prob for entailment
-                entailment_probs.append(entailment_prob.cpu())
-
-            entailment_probs = np.concat(entailment_probs, axis=0)  # concatenate results from all batches
+            # get entailment probs between answer sentence and all context windows
+            entailment_probs = get_nli_entailment_probs(nli_tokenizer, nli_model, dataloader)
 
             # aggregate scores
             attr_scores_sent = aggregate_windows(entailment_probs, window_length)
@@ -378,6 +344,100 @@ def compute_attributions_nli_post_hoc_sliding_window(cc: ContextCiter, sliding_w
         # write results for each window length to results dict
         res["methods"][f"nli_post_hoc_sliding_window_{window_length}"] = {
             "attr_scores": attr_scores,
+        }
+
+    return res
+
+def compute_attributions_nli_post_hoc_greedy_sampling(cc: ContextCiter, nli_tokenizer: Union[PreTrainedTokenizer, PreTrainedTokenizerFast], 
+                                                      nli_model: PreTrainedModel, res: dict):
+    """
+    Generate citations using an NLI-based post-hoc attribution approach with greedy sampling based on the ADiOSAA framework from the paper
+    "Post-Hoc Answer Attribution for Grounded and Trustworthy Long Document Comprehension: Task, Insights, and Challenges". This approach aggregates
+    a list of cited source sentences. In each iteration it adds the one source sentence that maximizes entailment probability for the given answer
+    sentence when combined with the already cited sentences. This is a modified version which simply ends after a specified number of iterations k
+    to be able to compute top-k log-probability drop, instead of the original ending criterion. The method gives a list of cited sentences which
+    can be used for top-k log-prob drop calculation but not for linear datamodeling score calculation. 
+    """
+
+    class NLIDatasetGreedySampling(utils.data.Dataset):
+        """Combining context sentences for Optimal Selection logic from ADiOSAA-paper"""
+
+        def __init__(self, answer_sentence: str, context_sentences: List[str]):
+
+            self.answer_sentence = answer_sentence
+            self.context_sentences = context_sentences 
+
+            self.cited_sentences_idxs = []
+            self.remaining_sentences_idxs = list(range(len(self.context_sentences)))
+
+            # list with the contexts that are checked for entailment
+            # contexts are joined sentences from the already selected context sentences
+            # plus each one of the remaining sentences, respectively
+            # at initialization, these are simply all the individual context sentences 
+            self.contexts = context_sentences
+
+        def __len__(self):
+
+            return len(self.contexts)
+
+        def __getitem__(self, idx):
+
+            return self.answer_sentence, self.contexts[idx]
+
+        def update(self, new_cited_sentence_idx):
+            """
+            Update the dataset for the next iteration of the algorithm based on which
+            sentence was cited from the previous iteration (i.e. which sentence from 
+            the remaining sentences resulted in the highest entailment probability
+            when added to the already cited sentences).
+
+            This function gets the sentence index for the sentence that gets added in 
+            the latest iteration, adds it to the cited_sentences and removes it from 
+            the remaining_sentences. Then it updates the contexts to check entailment
+            for, for the next iteration. The contexts now all include the newly cited
+            sentence and get combined with the now remaining_sentences which do not
+            include the newly cited sentence anymore. I.e. for each iteration/for each
+            added cited sentence the length of self.contexts gets reduced by 1.
+            """
+
+            self.cited_sentences_idxs.append(new_cited_sentence_idx)
+            self.remaining_sentences_idxs.remove(new_cited_sentence_idx)
+
+            # build new contexts
+            contexts = []
+            for idx in self.remaining_sentences_idxs:
+                context_idxs = self.cited_sentences_idxs + [idx] # add one remaining sentence to the context
+                context_idxs = sorted(context_idxs) # sort context sentences to join the in their original order
+                contexts.append(" ".join([self.context_sentences[context_idx] for context_idx in context_idxs]))
+
+            self.contexts = contexts
+
+
+    k = 5  # number of source sentences to cite
+
+    answer = cc.response
+    sentences, _, _ = split_text(answer)
+
+    attr_scores = []
+    for sent in sentences:
+        dataset = NLIDatasetGreedySampling(answer_sentence=sent, context_sentences=cc.sources)
+
+        for _ in range(k):
+            dataloader = DataLoader(dataset, shuffle=False, batch_size=32)
+            entailment_probs = get_nli_entailment_probs(nli_tokenizer, nli_model, dataloader)
+            new_cited_sentence_idx = dataset.remaining_sentences_idxs[np.argmax(entailment_probs)]
+            dataset.update(new_cited_sentence_idx)
+
+        # set the attribution scores to 1,2,...,k according to their order (first citation gets highest score)
+        attr_scores_sent = np.zeros(len(cc.sources))
+        for score, idx in enumerate(dataset.cited_sentences_idxs[::-1], start=1):
+            attr_scores_sent[idx] = score
+
+        attr_scores.append(attr_scores_sent)
+
+        # write results to results dict
+        res["methods"]["nli_post_hoc_greedy_sampling"] = {
+            "attr_scores": attr_scores.tolist(),
         }
 
     return res
@@ -471,12 +531,10 @@ def compute_attributions_llm_post_hoc(cc: ContextCiter, model: PreTrainedModel, 
     attr_scores = []
     model_generations = []
     for sent in sentences:
-
         attr_scores_sent = {}   # for LLM post-hoc citation the attribution scores for one sentence is a dict with entries for k=1,3,5
         model_generations_sent = {}
 
         for k in ks:
-
             # build prompt and perform inference
             system_prompt_text, user_prompt_text = get_prompt_text(sent, cc.sources, k)
             input_ids = get_prompt_ids(system_prompt_text, user_prompt_text, model, tokenizer, model.device)
@@ -601,27 +659,24 @@ def main(config=None):
 
         #--- perform answer attribution using the different methods ---#
         if "context_cite" in config.attr_methods:
-
             data_point_results = compute_attributions_context_cite(cc_kwargs, data_point_results, config.cc_num_ablations)
 
         if "semantic_similarity" in config.attr_methods:
-
             data_point_results = compute_attributions_semantic_similarity(cc, sentence_embedding_model, data_point_results)
 
         if "leave_one_out" in config.attr_methods:
-
             data_point_results = compute_attributions_leave_one_out(cc, data_point_results)
 
         if "nli_post_hoc_naive" in config.attr_methods:
-
             data_point_results = compute_attributions_nli_post_hoc_naive(cc, nli_tokenizer, nli_model, data_point_results)
 
         if "nli_post_hoc_sliding_window" in config.attr_methods:
-
             data_point_results = compute_attributions_nli_post_hoc_sliding_window(cc, config.sliding_window_lengths, nli_tokenizer, nli_model, data_point_results)
 
-        if "llm_post_hoc" in config.attr_methods:
+        if "nli_post_hoc_greedy_sampling" in config.attr_methods:
+            data_point_results = compute_attributions_nli_post_hoc_greedy_sampling(cc, nli_tokenizer, nli_model, data_point_results)
 
+        if "llm_post_hoc" in config.attr_methods:
             data_point_results = compute_attributions_llm_post_hoc(cc, model, tokenizer, data_point_results)
 
 

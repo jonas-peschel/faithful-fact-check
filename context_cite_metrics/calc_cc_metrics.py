@@ -17,7 +17,7 @@ from utils import load_json, save_json, load_data, load_datapoint, load_cc_promp
 def parse_args():
 
     parser = argparse.ArgumentParser(description="Calculate top-k log-prob drop (k=1,3,5) and linear datamodeling score for different attribution methods.") 
-    parser.add_argument("--attr_methods", type=str, nargs="+", choices=["context_cite_32", "context_cite_64", "context_cite_128", "context_cite_256", "semantic_similarity", "leave_one_out", "nli_post_hoc_naive", "nli_post_hoc_sliding_window_3", "nli_post_hoc_sliding_window_5", "llm_post_hoc"], default=None, help="Which answer attribution methods to calculate the metrics for.")
+    parser.add_argument("--attr_methods", type=str, nargs="+", choices=["context_cite_32", "context_cite_64", "context_cite_128", "context_cite_256", "semantic_similarity", "leave_one_out", "nli_post_hoc_naive", "nli_post_hoc_sliding_window_3", "nli_post_hoc_sliding_window_5", "nli_post_hoc_greedy_sampling", "llm_post_hoc"], default=None, help="Which answer attribution methods to calculate the metrics for.")
     parser.add_argument("--metrics", type=str, nargs="+", choices=["log_prob_drop", "LDS"], default=["log_prob_drop", "LDS"], help="Which metric(s) to compute.")
     parser.add_argument("--dataset", type=str, choices=["cnn_daily_mail", "druid"], required=True, help="Which dataset to use.")
     parser.add_argument("--model_name", type=str, choices=["meta-llama/Llama-3.1-8B-Instruct"], default="meta-llama/Llama-3.1-8B-Instruct", help="Huggingface name of model to use.")
@@ -162,10 +162,15 @@ def calc_linear_datamodeling_score(cc: ContextCiter, res: dict, attr_methods: Li
     answer = cc.response
     sentences, start_idxs, end_idxs = split_text(answer)
 
-    attr_methods = res["methods"].keys() if attr_methods is None else attr_methods
+    attr_methods = attr_methods or res["methods"].keys()
+
     if "llm_post_hoc" in attr_methods:
         warnings.warn("Can not calculate linear datamodeling score for LLM-post-hoc attribution method. Skipping calculations...")
         attr_methods.remove("llm_post_hoc")
+
+    if "nli_post_hoc_greedy_sampling" in attr_methods:
+        warnings.warn("Can not calculate linear datamodeling score for NLI-based post-hoc attribution method with greedy sampling. Skipping calculations...")
+        attr_methods.remove("nli_post_hoc_greedy_sampling")
 
     res = prepare_results_dict(res, attr_methods)
 
