@@ -105,6 +105,32 @@ def load_cc_prompt_template(dataset_name):
 
 #--- dataset helper methods end ---#
 
+#--- atttribution methods helper functions ---#
+def get_nli_entailment_probs(nli_tokenizer, nli_model, dataloader):
+
+    entailment_probs = []
+    for answer_sent, context_sents in dataloader:
+
+        input = nli_tokenizer(
+            list(context_sents),
+            list(answer_sent),
+            padding=True,
+            truncation=True,
+            return_tensors="pt",
+        ).to(nli_model.device)
+
+        with torch.inference_mode():
+            output = nli_model(**input)
+
+        probs = torch.softmax(output.logits, axis=1)   # convert to probabilities
+        entailment_prob = probs[:,0]    # only use predicted prob for entailment
+        entailment_probs.append(entailment_prob.cpu())
+
+    entailment_probs = np.concat(entailment_probs, axis=0)  # concatenate results from all batches
+
+    return entailment_probs
+#--- atttribution methods helper functions end---#
+
 def load_model(model_name, is_quantize):
 
     quantization_config = BitsAndBytesConfig(
