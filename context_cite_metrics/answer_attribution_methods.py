@@ -589,7 +589,9 @@ def main(config=None):
         sentence_embedding_model = SentenceTransformer("all-mpnet-base-v2")
 
     # load DeBERTa NLI model for post-hoc answer attribution
-    if "nli_post_hoc_naive" in config.attr_methods or "nli_post_hoc_sliding_window" in config.attr_methods:
+    if ("nli_post_hoc_naive" in config.attr_methods 
+            or "nli_post_hoc_sliding_window" in config.attr_methods 
+            or "nli_post_hoc_greedy_sampling" in config.attr_methods):
         model_name = "MoritzLaurer/DeBERTa-v3-large-mnli-fever-anli-ling-wanli"
         device = "cuda" if torch.cuda.is_available() else "cpu"
         nli_tokenizer = AutoTokenizer.from_pretrained(model_name)
