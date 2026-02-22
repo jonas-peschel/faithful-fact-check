@@ -656,6 +656,11 @@ def main(config=None):
             }
         cc = ContextCiter(**cc_kwargs)
 
+        # check that the model response is identical as for all other runs and attribution methods
+        answer = cc.response
+        if "model_answer" in data_point_results.keys():
+            assert answer == data_point_results["model_answer"], "Model answer must be always identical."
+
         # save meta information for the data point and add key structure to the dict to save attribution scores later
         data_point_results = prepare_results_dict(cc, data_point_results)
 
