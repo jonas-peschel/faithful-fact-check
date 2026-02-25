@@ -141,9 +141,11 @@ def load_model(model_name, is_quantize):
         bnb_4bit_quant_type="nf4"
     ) if is_quantize else None
 
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
     tokenizer.padding_side = "left" # set padding side to left for batch inference with ContextCite
-    model = AutoModelForCausalLM.from_pretrained(model_name, device_map="auto", dtype=torch.float16, quantization_config=quantization_config) 
+    tokenizer.pad_token_id = tokenizer.eos_token_id
+    model = AutoModelForCausalLM.from_pretrained(model_name, device_map="auto", dtype=torch.bfloat16, 
+                                                 quantization_config=quantization_config, trust_remote_code=True) 
     device = model.device
 
     return model, tokenizer, device
