@@ -1,6 +1,7 @@
 import argparse
 import os
 import traceback
+import gc
 from pathlib import Path
 import datasets
 import torch
@@ -724,8 +725,13 @@ def main(config=None):
             data_point_results = {}  # make results for this data point invalid
             # cleanup
             del model 
+            gc.collect()
             torch.cuda.empty_cache()
-            model, _, _ = load_model(config.model_name, True)
+            try:
+                model, _, _ = load_model(config.model_name, True)
+            except Exception as reload_error:
+                print(f"Failed to reaload model: {reload_error}\n\nStopping script...")
+                break
             cc.model = model
         except Exception as e:
             # print(e)
