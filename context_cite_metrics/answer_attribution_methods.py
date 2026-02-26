@@ -588,7 +588,6 @@ def compute_attributions_longcite(cc: LongCiteContextCiter, res: dict):
     res["methods"]["longcite_llm_direct"] = {
         "attr_scores": attr_scores,
         "citations": citations,
-        "result": longcite_result,
     }
 
     return res
