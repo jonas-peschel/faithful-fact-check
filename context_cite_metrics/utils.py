@@ -160,7 +160,7 @@ def load_model(model_name, is_quantize):
     tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
     tokenizer.padding_side = "left" # set padding side to left for batch inference with ContextCite
     tokenizer.pad_token_id = tokenizer.eos_token_id
-    model = AutoModelForCausalLM.from_pretrained(model_name, device_map="auto", dtype=torch.bfloat16, 
+    model = AutoModelForCausalLM.from_pretrained(model_name, device_map="auto", torch_dtype=torch.bfloat16, 
                                                  quantization_config=quantization_config, trust_remote_code=True) 
     device = model.device
 
