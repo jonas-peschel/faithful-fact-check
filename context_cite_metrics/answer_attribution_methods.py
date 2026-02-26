@@ -1,5 +1,6 @@
 import argparse
 import os
+import traceback
 from pathlib import Path
 import datasets
 import torch
@@ -687,34 +688,58 @@ def main(config=None):
         data_point_results, cc = get_results_metadata(cc, data_point_results)
 
         #--- perform answer attribution using the different methods ---#
-        if "longcite_llm_direct" in config.attr_methods:
-            data_point_results = compute_attributions_longcite(cc, data_point_results)
+        try:
+            if "longcite_llm_direct" in config.attr_methods:
+                data_point_results = compute_attributions_longcite(cc, data_point_results)
 
-        if "context_cite" in config.attr_methods:
-            data_point_results = compute_attributions_context_cite(cc_kwargs, data_point_results, config.cc_num_ablations, config.use_longcite)
+            if "context_cite" in config.attr_methods:
+                data_point_results = compute_attributions_context_cite(cc_kwargs, data_point_results, config.cc_num_ablations, config.use_longcite)
 
-        if "semantic_similarity" in config.attr_methods:
-            data_point_results = compute_attributions_semantic_similarity(cc, sentence_embedding_model, data_point_results)
+            if "semantic_similarity" in config.attr_methods:
+                data_point_results = compute_attributions_semantic_similarity(cc, sentence_embedding_model, data_point_results)
 
-        if "leave_one_out" in config.attr_methods:
-            data_point_results = compute_attributions_leave_one_out(cc, data_point_results)
+            if "leave_one_out" in config.attr_methods:
+                data_point_results = compute_attributions_leave_one_out(cc, data_point_results)
 
-        if "nli_post_hoc_naive" in config.attr_methods:
-            data_point_results = compute_attributions_nli_post_hoc_naive(cc, nli_tokenizer, nli_model, data_point_results)
+            if "nli_post_hoc_naive" in config.attr_methods:
+                data_point_results = compute_attributions_nli_post_hoc_naive(cc, nli_tokenizer, nli_model, data_point_results)
 
-        if "nli_post_hoc_sliding_window" in config.attr_methods:
-            data_point_results = compute_attributions_nli_post_hoc_sliding_window(cc, config.sliding_window_lengths, nli_tokenizer, nli_model, data_point_results)
+            if "nli_post_hoc_sliding_window" in config.attr_methods:
+                data_point_results = compute_attributions_nli_post_hoc_sliding_window(cc, config.sliding_window_lengths, nli_tokenizer, nli_model, data_point_results)
 
-        if "nli_post_hoc_greedy_sampling" in config.attr_methods:
-            data_point_results = compute_attributions_nli_post_hoc_greedy_sampling(cc, nli_tokenizer, nli_model, data_point_results)
+            if "nli_post_hoc_greedy_sampling" in config.attr_methods:
+                data_point_results = compute_attributions_nli_post_hoc_greedy_sampling(cc, nli_tokenizer, nli_model, data_point_results)
 
-        if "llm_post_hoc" in config.attr_methods:
-            data_point_results = compute_attributions_llm_post_hoc(cc, model, tokenizer, data_point_results)
+            if "llm_post_hoc" in config.attr_methods:
+                data_point_results = compute_attributions_llm_post_hoc(cc, model, tokenizer, data_point_results)
+
+        except KeyboardInterrupt:
+            print("\nKeyboard interrupt! Saving data...")
+            break
+        except torch.cuda.OutOfMemoryError as e:
+            print("Cuda out of memory error!")
+            print(idx)
+            print('-'*200)
+            data_point_results = {}  # make results for this data point invalid
+            # cleanup
+            del model 
+            torch.cuda.empty_cache()
+            model, _, _ = load_model(config.model_name, True)
+        except Exception as e:
+            # print(e)
+            traceback.print_exc()
+            print('-'*200)
+            data_point_results = {}  # make results for this data point invalid
+            raise e
 
         # add results for the data point to the results
         results["results"][idx] = data_point_results
 
-    # save results to result file
+        # save every 5 data points
+        if (idx+1) % 5 == 0:
+            save_json(results_path, results)
+
+    # finally save all results to result file
     save_json(results_path, results)
 
 if __name__ == "__main__":
