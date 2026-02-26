@@ -4,7 +4,6 @@ import re
 import nltk
 nltk.download("punkt_tab")
 from nltk.tokenize import PunktSentenceTokenizer
-import context_cite
 from context_cite import ContextCiter
 from context_cite.context_partitioner import BaseContextPartitioner
 from context_cite.solver import BaseSolver
@@ -238,13 +237,22 @@ class LongCiteContextPartitioner(BaseContextPartitioner):
         return context
 
 
-DEFAULT_GENERATE_KWARGS_LONGCITE = {
+LONGCITE_GENERATE_KWARGS = {
     "max_new_tokens": 1024,
     "do_sample": True,
     "temperature": 0.95,
     "num_beams": 1,
     "top_p": 0.7,
 }
+
+LONGCITE_PROMPT_TEMPLATE = """Please answer the user's question based on the following document. When a sentence S in your response uses information from some chunks in the document (i.e., <C{s1}>-<C_{e1}>, <C{s2}>-<C{e2}>, ...), please append these chunk numbers to S in the format "<statement>{S}<cite>[{s1}-{e1}][{s2}-{e2}]...</cite></statement>". You must answer in the same language as the user's question.
+
+[Document Start]
+{context}
+[Document End]
+
+{query}
+"""
 
 class LongCiteContextCiter(ContextCiter):
 
@@ -268,7 +276,7 @@ class LongCiteContextCiter(ContextCiter):
                          generate_kwargs, num_ablations, ablation_keep_prob, 
                          batch_size, solver, prompt_template, partitioner)
         self.max_input_length = max_input_length
-        self.generate_kwargs = generate_kwargs or DEFAULT_GENERATE_KWARGS_LONGCITE
+        self.generate_kwargs = generate_kwargs or LONGCITE_GENERATE_KWARGS
 
     def _get_prompt_ids(self, mask: Optional[NDArray]=None, return_prompt: bool=False):
         context = self.partitioner.get_context(mask)
@@ -288,11 +296,7 @@ class LongCiteContextCiter(ContextCiter):
         
     @property 
     def _output(self):
-        if self._cache.get("output") is None:
-            self.logger.warning(("If you are running ContextCite metrics experiments then the "
-                                 "LongCite model inference to get the model answer should be done outside of the ContextCiter object "
-                                 "once for answer consistency and then the prompt + answer string should be set to cc._cache['output']."))
-            
+        if self._cache.get("output") is None:            
             prompt_ids, prompt = self._get_prompt_ids(return_prompt=True)
             prompt_ids = torch.tensor([prompt_ids], device=self.model.device)
             eos_token_id = [self.tokenizer.eos_token_id, self.tokenizer.get_command("<|user|>"), 
@@ -306,10 +310,20 @@ class LongCiteContextCiter(ContextCiter):
     @property 
     def _output_tokens(self):
         """Problem: LongCite tokenizer is Python based and does not support token_to_chars() method but
-        the method is needed for the original logic in ContextCiter.
+        the method is needed for the original logic in ContextCiter, therefore we use a wrapper for the
+        output tokens.
         """
         output_ids = self.tokenizer.encode(self._output, add_special_tokens=False)
         wrapper = TokenToCharsWrapper(output_ids, self._output, self.tokenizer)
         output_tokens = BatchEncoding({"input_ids": output_ids})
         output_tokens.token_to_chars = wrapper.token_to_chars 
         return output_tokens 
+    
+    @property
+    def response_dict(self):
+        """Get LongCite results dictionary with info from post-processed model response."""
+        if self._cache.get("response_dict") is None:
+            _, sents, splited_context, _, _ = get_prompt(self.partitioner.get_context(), self.query)
+            response_dict = postprocess(self.response.strip(), sents, splited_context)
+            self._cache["response_dict"] = response_dict
+        return self._cache["response_dict"]

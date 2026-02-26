@@ -4,6 +4,8 @@ import numpy as np
 import torch
 from copy import copy
 from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
+from context_cite import ContextCiter 
+from longcite_utils import LongCiteContextCiter
 import nltk
 from nltk import sent_tokenize
 nltk.download("punkt_tab")
@@ -21,22 +23,36 @@ def save_json(filepath, content):
     with open(filepath, "w") as f:
         json.dump(content, f, indent=4)
 
-
-def split_text(text):
-    """Split model response into sentences and return sentences and corresponding start indices."""
-
-    sentences = sent_tokenize(text)
-
-    prev_end_idx = 0
-    start_idxs, end_idxs = [], []
-    for sent in sentences:
-
-        start_idx = text.find(sent, prev_end_idx)
-        start_idxs.append(start_idx)
-        prev_end_idx = start_idx + len(sent)
-        end_idxs.append(prev_end_idx)
-
-    return sentences, start_idxs, end_idxs
+def split_model_answer(cc: ContextCiter):
+    """Split model response into statements/sentences and get corresponding start and end indices.
+    Different behaviour for standard ContextCiter vs. LongCite ContextCiter.
+    """
+    response = cc.response
+    if isinstance(cc, LongCiteContextCiter):
+        longcite_result = cc.response_dict 
+        statements, start_idxs, end_idxs = [], [], []
+        prev_end_idx = 0
+        for statement in longcite_result["all_statements"]:
+            statement_text = statement["statement"]
+            if statement_text.strip():
+                statements.append(statement_text)
+                start_idx = response.find(statement_text, prev_end_idx)
+                start_idxs.append(start_idx)
+                prev_end_idx = start_idx + len(statement_text)
+                end_idxs.append(prev_end_idx)
+        spans = list(zip(start_idxs, end_idxs))
+        return statements, spans
+    else:
+        sentences = sent_tokenize(response)
+        start_idxs, end_idxs = [], []
+        prev_end_idx = 0
+        for sent in sentences:
+            start_idx = response.find(sent, prev_end_idx)
+            start_idxs.append(start_idx)
+            prev_end_idx = start_idx + len(sent)
+            end_idxs.append(prev_end_idx)
+        spans = list(zip(start_idxs, end_idxs))
+        return sentences, spans
 
 #--- dataset helper methods ---#
 def load_data(dataset_name, n_samples, seed=0):
@@ -150,6 +166,9 @@ def load_model(model_name, is_quantize):
 
     return model, tokenizer, device
 
+
+CC_GENERATE_KWARGS = {"do_sample": False, "max_new_tokens": 512}
+
 #--- Plotting utils ---#
 
 # plot colors for the different attribution methods
@@ -165,13 +184,14 @@ METH2COL = {
         "nli_post_hoc_sliding_window_5": "#484848",
         "nli_post_hoc_greedy_sampling": '#333333',
         "llm_post_hoc": '#bcbd22',
+        "longcite_llm_direct": '#e377c2',
     }
 
 def order_results(mean_results, std_results, labels):
 
-    true_order = ["context_cite_256", "context_cite_128", "context_cite_64", "context_cite_32", 
-                  "semantic_similarity", "leave_one_out", "nli_post_hoc_naive", "nli_post_hoc_sliding_window_3", 
-                  "nli_post_hoc_sliding_window_5", "nli_post_hoc_greedy_sampling", "llm_post_hoc"]
+    true_order = ["context_cite_256", "context_cite_128", "context_cite_64", "context_cite_32", "longcite_llm_direct", 
+                  "llm_post_hoc", "semantic_similarity", "leave_one_out", "nli_post_hoc_naive", 
+                  "nli_post_hoc_sliding_window_3", "nli_post_hoc_sliding_window_5", "nli_post_hoc_greedy_sampling"]
 
     adapted_true_order = copy(true_order)
     for method in true_order:

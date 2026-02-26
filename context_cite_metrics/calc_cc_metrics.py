@@ -13,7 +13,7 @@ from context_cite.utils import _get_response_logit_probs, aggregate_logit_probs
 from tqdm.auto import tqdm
 from typing import List 
 from numpy.typing import NDArray
-from utils import load_json, save_json, load_data, load_datapoint, load_cc_prompt_template, split_text, load_model
+from utils import load_json, save_json, load_data, load_datapoint, load_cc_prompt_template, load_model
 
 def parse_args():
 
@@ -76,8 +76,8 @@ def calc_top_k_log_prob_drop(cc: ContextCiter, res: dict, attr_methods: List[str
     # how many sources to ablate
     ks = [0,1,3,5]
 
-    answer = cc.response
-    sentences, start_idxs, end_idxs = split_text(answer)
+    answer_statements = res["answer_statements"]
+    char_spans = res["answer_statement_char_spans"]
 
     # loop through attribution methods and sentences, then for each sentence compute
     # top-k log-prob drop for k=1,3,5
@@ -92,9 +92,7 @@ def calc_top_k_log_prob_drop(cc: ContextCiter, res: dict, attr_methods: List[str
         for k in ks[1:]:
             res["methods"][attr_method]["metrics"]["top_k_drop"][f"top_{k}_drop"] = []  # for each method and k, there is a list of drops (drop for each sentence)
 
-
-        for sent_idx, start_idx, end_idx in zip(range(len(sentences)), start_idxs, end_idxs):
-
+        for sent_idx, (start_idx, end_idx) in zip(range(len(answer_statements)), char_spans):
             # 0. load attribution scores
             attr_scores = res["methods"][attr_method]["attr_scores"][sent_idx] 
 
@@ -116,7 +114,6 @@ def calc_top_k_log_prob_drop(cc: ContextCiter, res: dict, attr_methods: List[str
             # 1. create masks for k=1,3,5 and create one full mask where no sources are ablated (k=0) for computing the difference 
             masks = []
             for attr_scores_k, k in zip(attr_scores_ks, ks):
-
                 masks.append(create_mask(attr_scores_k, k))
 
             # 2. create "dataset" with input tokens for different ablations and output tokens (labels) 
@@ -157,11 +154,7 @@ def calc_linear_datamodeling_score(cc: ContextCiter, res: dict, attr_methods: Li
                 res["methods"][attr_method]["metrics"] = {}
             res["methods"][attr_method]["metrics"]["LDS"] = []  # list of scores (one LDS score per sentence)
 
-        return res
-
-
-    answer = cc.response
-    sentences, start_idxs, end_idxs = split_text(answer)
+        return res 
 
     attr_methods = attr_methods or res["methods"].keys()
 
@@ -182,7 +175,9 @@ def calc_linear_datamodeling_score(cc: ContextCiter, res: dict, attr_methods: Li
     masks = cc._masks   # (m, n_sources)
 
     # loop through sentences and attribution methods, then for each sentence compute LDS
-    for sent_idx, start_idx, end_idx in zip(range(len(sentences)), start_idxs, end_idxs):
+    answer_statements = res["answer_statements"]
+    char_spans = res["answer_statement_char_spans"]
+    for sent_idx, (start_idx, end_idx) in zip(range(len(answer_statements)), char_spans):
 
         # aggregate logit_probs for the current sentence to get the true response generation probabilities f
         ids_start_idx, ids_end_idx = cc._indices_to_token_indices(start_idx, end_idx)
