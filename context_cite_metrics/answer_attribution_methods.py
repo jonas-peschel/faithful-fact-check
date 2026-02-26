@@ -34,6 +34,7 @@ def parse_args():
     parser.add_argument("--sliding_window_lengths", type=int, nargs="+", choices=[3,5], help="How many sentences to include per context window if NLI with sliding windows is used as attribution method.")
     parser.add_argument("--results_path", type=str, default="Results/results.json", help="Path to the file where attribution scores and experiment results are stored.")
     parser.add_argument("--n_samples", type=int, default=20, help="How many data points to sample from the dataset.")
+    parser.add_argument("--start_idx", type=int, default=0, help="Data starting index.")
     parser.add_argument("--cc_batch_size", type=int, default=8, help="Batch size to use in ContextCiter for performing inference using ablated contexts.")
 
     return parser.parse_args()
@@ -610,7 +611,7 @@ def main(config=None):
 
     # load data and model
     model, tokenizer, device = load_model(config.model_name, True) # load veracity classification and justification model (Llama-8B-Instruct)
-    data = load_data(config.dataset, n_samples=config.n_samples, seed=0)
+    data = load_data(config.dataset, n_samples=config.n_samples, start_idx=config.start_idx, seed=0)
 
     # load sentence embedding model if semantic similarity is used for attribution
     if "semantic_similarity" in config.attr_methods:
@@ -655,7 +656,7 @@ def main(config=None):
         assert results["metadata"]["model"] == config.model_name, "Existing results should use the same language model as new results to compute."
 
 
-    for idx, data_point in tqdm(enumerate(data), total=len(data)):
+    for idx, data_point in tqdm(enumerate(data, start=config.start_idx), total=len(data)):
         # check if other results for this data point exist already, if not add new entry
         if len(results["results"]) > idx:   # exists already
             data_point_results = results["results"][idx]    # copy old results to extend/overwrite
@@ -725,6 +726,7 @@ def main(config=None):
             del model 
             torch.cuda.empty_cache()
             model, _, _ = load_model(config.model_name, True)
+            cc.model = model
         except Exception as e:
             # print(e)
             traceback.print_exc()

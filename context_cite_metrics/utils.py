@@ -55,7 +55,7 @@ def split_model_answer(cc: ContextCiter):
         return sentences, spans
 
 #--- dataset helper methods ---#
-def load_data(dataset_name, n_samples, seed=0):
+def load_data(dataset_name, n_samples, start_idx, seed=0):
 
     assert n_samples <= 1000, "Max. 1000 samples"
 
@@ -67,7 +67,7 @@ def load_data(dataset_name, n_samples, seed=0):
         # that way, results from different runs with different n_samples will use the same datapoints in the beginning
         np.random.seed(seed)
         idxs = np.random.choice(len(dataset), 1000, replace=False)
-        idxs = idxs[:n_samples]
+        idxs = idxs[start_idx:start_idx+n_samples]
         dataset_sampled = dataset.select(idxs)
 
     # Dataset 2: DRUID
@@ -84,7 +84,7 @@ def load_data(dataset_name, n_samples, seed=0):
         # that way, results from different runs with different n_samples will use the same datapoints in the beginning
         np.random.seed(seed)
         idxs = np.random.choice(len(dataset), 1000, replace=False)
-        idxs = idxs[:n_samples]
+        idxs = idxs[start_idx:start_idx+n_samples]
         dataset_sampled = dataset.select(idxs)
     
     return dataset_sampled

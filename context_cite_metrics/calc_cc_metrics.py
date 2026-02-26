@@ -24,6 +24,7 @@ def parse_args():
     parser.add_argument("--model_name", type=str, choices=["meta-llama/Llama-3.1-8B-Instruct"], default="meta-llama/Llama-3.1-8B-Instruct", help="Huggingface name of model to use.")
     parser.add_argument("--results_path", type=str, default="Results/results.json", help="Path to the file where attribution scores and experiment results (metrics) are stored.")
     parser.add_argument("--n_samples", type=int, default=20, help="For how many data points to compute the metrics.")
+    parser.add_argument("--start_idx", type=int, default=0, help="Data starting index.")
     parser.add_argument("--m", type=int, default=128, help="How many random ablation vectors to sample for LDS calculation.")
     parser.add_argument("--cc_batch_size", type=int, default=8, help="Batch size to use in ContextCiter for performing inference using ablated contexts.")
 
@@ -235,12 +236,12 @@ def main(config=None):
 
     # load data and model
     model, tokenizer, device = load_model(config.model_name, True) # load veracity classification and justification model (Llama-8B-Instruct)
-    data = load_data(config.dataset, n_samples=config.n_samples, seed=0)
+    data = load_data(config.dataset, n_samples=config.n_samples, start_idx=config.start_idx, seed=0)
 
     CC_PROMPT_TEMPLATE = load_cc_prompt_template(config.dataset)
     CC_GENERATE_KWARGS = {"do_sample": False, "max_new_tokens": 512}
 
-    for idx, data_point in tqdm(enumerate(data), total=len(data)):
+    for idx, data_point in tqdm(enumerate(data, start=config.start_idx), total=len(data)):
 
         data_point_results = results["results"][idx]
         context, query = load_datapoint(data_point, config.dataset) # depends on the given dataset
