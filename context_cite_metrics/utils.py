@@ -89,14 +89,17 @@ def load_data(dataset_name, n_samples, seed=0):
     
     return dataset_sampled
 
-def load_datapoint(datapoint, dataset_name):
+def load_datapoint(datapoint, dataset_name, use_longcite):
     """Load context and query from a datapoint depending on the given dataset."""
 
     # Dataset 1: CNN DailyMail
     if dataset_name == "cnn_daily_mail":
 
         context = datapoint["article"]
-        query = "Please summarize the article in up to three sentences."
+        if use_longcite:
+            query = "Please summarize the article in up to three statements."
+        else:
+            query = "Please summarize the article in up to three sentences."
 
     # Dataset 2: DRUID
     if dataset_name == "druid":
