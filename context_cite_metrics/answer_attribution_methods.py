@@ -590,6 +590,8 @@ def compute_attributions_longcite(cc: LongCiteContextCiter, res: dict):
         "citations": citations,
         "result": longcite_result,
     }
+
+    return res
     
 #--- Answer Attribution Methods end ---#
 
