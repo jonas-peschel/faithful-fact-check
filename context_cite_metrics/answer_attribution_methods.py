@@ -401,6 +401,7 @@ def compute_attributions_nli_post_hoc_greedy_sampling(cc: ContextCiter, nli_toke
 
     answer_statements = res["answer_statements"]
     attr_scores = []
+    citations = []
     for i, sent in enumerate(answer_statements):
         dataset = NLIDatasetGreedySampling(answer_sentence=sent, context_sentences=cc.sources)
 
@@ -423,12 +424,13 @@ def compute_attributions_nli_post_hoc_greedy_sampling(cc: ContextCiter, nli_toke
             attr_scores_sent[idx] = score
 
         attr_scores.append(attr_scores_sent)
+        citations.append(dataset.cited_sentences_idxs)
 
-        # write results to results dict
-        res["methods"]["nli_post_hoc_greedy_sampling"] = {
-            "attr_scores": attr_scores,
-            "citations": dataset.cited_sentences_idxs
-        }
+    # write results to results dict
+    res["methods"]["nli_post_hoc_greedy_sampling"] = {
+        "attr_scores": attr_scores,
+        "citations": citations,
+    }
 
     return res
 
