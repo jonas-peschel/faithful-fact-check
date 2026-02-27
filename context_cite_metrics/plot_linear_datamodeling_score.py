@@ -25,7 +25,7 @@ def aggregate_lds(results, attr_methods):
         results (Dict):
             Contains the results from metrics computations.
         attr_methods (List[str]):
-            Attribution methods for which to calculate LDS.
+            Names of attribution methods for which to calculate LDS.
 
     Returns:
         mean_lds (NDArray[float]):
