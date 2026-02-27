@@ -1,4 +1,5 @@
 import argparse 
+import warnings
 import numpy as np 
 import matplotlib
 matplotlib.use('Agg')
@@ -15,6 +16,7 @@ def parse_args():
     parser.add_argument("results_path", type=str, help="Path to the file where attribution scores and experiment results (metrics) are stored.")
     parser.add_argument("plots_savepath", type=str, help="Path where to save the generated plots.")
     parser.add_argument("--use_longcite", action="store_true", help="Whether to plot top-k log-prob drop with k=#citations from LongCite model.")
+    parser.add_argument("--excluded_attr_methods", type=str, nargs="*", choices=["context_cite_32", "context_cite_64", "context_cite_128", "context_cite_256", "semantic_similarity", "leave_one_out", "nli_post_hoc_naive", "nli_post_hoc_sliding_window_3", "nli_post_hoc_sliding_window_5", "nli_post_hoc_greedy_sampling", "llm_post_hoc", "longcite_llm_direct"], default=None, help="Attribution methods not to include in the plot.")
     parser.add_argument("--plot_title", type=str, default="Top-k Log-Probability Drop Metric", help="Title for the plot.")
     parser.add_argument("--ks", type=int, nargs="+", choices=range(1,10), default=None, help="For which k's to plot the results.")
     parser.add_argument("--is_error_bars", action="store_true", help="Whether to plot the error bars with the standard error of the mean.")
@@ -146,6 +148,11 @@ def main(config=None):
             config.ks = [int(re.compile(r"top_(\d+)_drop$").match(key).group(1)) for key in list(list(results["results"][0]["methods"].values())[0]["metrics"]["top_k_drop"].keys())]    
 
     attr_methods = list(results["results"][0]["methods"].keys())
+    for excluded_attr_method in config.excluded_attr_methods:
+        if excluded_attr_method in attr_methods:
+            attr_methods.remove(excluded_attr_method)
+        else:
+            warnings.warn(f"Tried to exclude method {excluded_attr_method} but it was never included.")
 
     # aggregate mean and standard error of the mean over the data
     mean_drops, sem_drops = aggregate_log_prob_drops(results, config.ks, attr_methods)
