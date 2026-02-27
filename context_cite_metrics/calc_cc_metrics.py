@@ -157,10 +157,10 @@ def calc_top_k_log_prob_drop(cc: ContextCiter, res: dict, attr_methods: List[str
                 diff = (log_probs[0] - log_probs[i]) / n_answer_tokens_sent # diff full_context - ablated_context
 
                 # write result to the results dict (append to list for sentences)
+                if k in Ks:
+                    res["methods"][attr_method]["metrics"]["top_k_drop"][f"top_{k}_drop"].append(diff.item())
                 if use_longcite and k == k_longcite:
                     res["methods"][attr_method]["metrics"]["top_k_drop"]["top_k_drop_longcite"].append(diff.item())
-                else:
-                    res["methods"][attr_method]["metrics"]["top_k_drop"][f"top_{k}_drop"].append(diff.item())
                 
     return res
 
