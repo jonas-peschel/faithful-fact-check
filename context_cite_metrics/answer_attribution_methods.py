@@ -237,7 +237,7 @@ def compute_attributions_nli_post_hoc_naive(cc: ContextCiter, nli_tokenizer: Uni
 
         # use torch dataloader for batch processing
         dataset = NLIDataset(sent, cc.sources)
-        dataloader = DataLoader(dataset, shuffle=False, batch_size=32)
+        dataloader = DataLoader(dataset, shuffle=False, batch_size=cc.batch_size)
 
         # get entailment probs between answer sentence and all context sentences
         entailment_probs = get_nli_entailment_probs(nli_tokenizer, nli_model, dataloader)
@@ -320,7 +320,7 @@ def compute_attributions_nli_post_hoc_sliding_window(cc: ContextCiter, sliding_w
 
             # use torch dataloader for batch processing
             dataset = NLIDatasetSlidingWindows(sent, context_windows)
-            dataloader = DataLoader(dataset, shuffle=False, batch_size=32)
+            dataloader = DataLoader(dataset, shuffle=False, batch_size=cc.batch_size)
 
             # get entailment probs between answer sentence and all context windows
             entailment_probs = get_nli_entailment_probs(nli_tokenizer, nli_model, dataloader)
@@ -416,7 +416,7 @@ def compute_attributions_nli_post_hoc_greedy_sampling(cc: ContextCiter, nli_toke
                 k = n
 
         for _ in range(k):
-            dataloader = DataLoader(dataset, shuffle=False, batch_size=32)
+            dataloader = DataLoader(dataset, shuffle=False, batch_size=cc.batch_size)
             entailment_probs = get_nli_entailment_probs(nli_tokenizer, nli_model, dataloader)
             new_cited_sentence_idx = dataset.remaining_sentences_idxs[np.argmax(entailment_probs)]
             dataset.update(new_cited_sentence_idx)
