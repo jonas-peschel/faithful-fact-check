@@ -128,7 +128,7 @@ def main(config=None):
     # use all ks from the data if not provided
     if config.ks is None:
         # good luck trying to read this
-        config.ks = [int(re.compile(r"top_(\d+)_drop").match(key).group(1)) for key in list(list(results["results"][0]["methods"].values())[0]["metrics"]["top_k_drop"].keys())]    
+        config.ks = [int(re.compile(r"top_(\d+)_drop$").match(key).group(1)) for key in list(list(results["results"][0]["methods"].values())[0]["metrics"]["top_k_drop"].keys())]    
 
     # aggregate mean and standard error of the mean over the data
     mean_drops, sem_drops = aggregate_log_prob_drops(results, config.ks)
