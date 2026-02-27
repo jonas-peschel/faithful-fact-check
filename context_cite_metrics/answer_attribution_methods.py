@@ -25,6 +25,8 @@ from numpy.typing import NDArray
 from utils import load_json, save_json, load_data, load_datapoint, load_cc_prompt_template, split_model_answer, load_model, get_nli_entailment_probs, CC_GENERATE_KWARGS
 from longcite_utils import LongCiteContextCiter, LongCiteContextPartitioner, LONGCITE_GENERATE_KWARGS, LONGCITE_PROMPT_TEMPLATE
 
+os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True"
+
 def parse_args():
     parser = argparse.ArgumentParser(description="Calculate answer attribution scores using different attribution methods.")
     parser.add_argument("--dataset", type=str, choices=["cnn_daily_mail", "druid"], default=None, required=True, help="Which dataset to use.")
@@ -108,8 +110,9 @@ def compute_attributions_semantic_similarity(cc: ContextCiter, embedding_model: 
     context_sentences = cc.sources
 
     # embed sentences
-    answer_embeddings = embedding_model.encode(answer_statements)
-    context_embeddings = embedding_model.encode(context_sentences) 
+    with torch.inference_mode():
+        answer_embeddings = embedding_model.encode(answer_statements)
+        context_embeddings = embedding_model.encode(context_sentences) 
 
     # compute cosine similarities for each pair of answer and context sentence
     embedding_model.similarity_fn_name = "cosine" 
@@ -619,13 +622,14 @@ def main(config=None):
         sentence_embedding_model = SentenceTransformer("all-mpnet-base-v2")
 
     # load DeBERTa NLI model for post-hoc answer attribution
-    if ("nli_post_hoc_naive" in config.attr_methods 
-            or "nli_post_hoc_sliding_window" in config.attr_methods 
-            or "nli_post_hoc_greedy_sampling" in config.attr_methods):
+    use_nli = ("nli_post_hoc_naive" in config.attr_methods 
+        or "nli_post_hoc_sliding_window" in config.attr_methods 
+        or "nli_post_hoc_greedy_sampling" in config.attr_methods)
+    if (use_nli):
         model_name = "MoritzLaurer/DeBERTa-v3-large-mnli-fever-anli-ling-wanli"
         device = "cuda" if torch.cuda.is_available() else "cpu"
         nli_tokenizer = AutoTokenizer.from_pretrained(model_name)
-        nli_model = AutoModelForSequenceClassification.from_pretrained(model_name).to(device)
+        nli_model = AutoModelForSequenceClassification.from_pretrained(model_name).to("cpu")
 
     PROMPT_TEMPLATE = LONGCITE_PROMPT_TEMPLATE if config.use_longcite else load_cc_prompt_template(config.dataset)  # LongCite prompt template is not actually used
     GENERATE_KWARGS = LONGCITE_GENERATE_KWARGS if config.use_longcite else CC_GENERATE_KWARGS
@@ -674,15 +678,15 @@ def main(config=None):
         # instantiate ContextCiter to use for answer attribution (used by baselines; for attribution with ContextCite 
         # we have to instantiate new ContextCiter objects with corresponding num_ablations).
         cc_kwargs = {
-                "model": model,
-                "tokenizer": tokenizer,
-                "context": context,
-                "query": query,
-                "batch_size": config.cc_batch_size,
-                "prompt_template": PROMPT_TEMPLATE,
-                "generate_kwargs": GENERATE_KWARGS,
-                "partitioner": partitioner
-            }
+            "model": model,
+            "tokenizer": tokenizer,
+            "context": context,
+            "query": query,
+            "batch_size": config.cc_batch_size,
+            "prompt_template": PROMPT_TEMPLATE,
+            "generate_kwargs": GENERATE_KWARGS,
+            "partitioner": partitioner
+        }
         cc = LongCiteContextCiter(**cc_kwargs) if config.use_longcite else ContextCiter(**cc_kwargs)
 
         # save meta information and add key structure to the dict to save attribution scores;
@@ -703,6 +707,12 @@ def main(config=None):
             if "leave_one_out" in config.attr_methods:
                 data_point_results = compute_attributions_leave_one_out(cc, data_point_results)
 
+            if "llm_post_hoc" in config.attr_methods:
+                data_point_results = compute_attributions_llm_post_hoc(cc, model, tokenizer, data_point_results)
+
+            #--- NLI-based attribution methods ---#
+            if use_nli:
+                nli_model = nli_model.to(device)  # load from cpu to gpu
             if "nli_post_hoc_naive" in config.attr_methods:
                 data_point_results = compute_attributions_nli_post_hoc_naive(cc, nli_tokenizer, nli_model, data_point_results)
 
@@ -711,9 +721,8 @@ def main(config=None):
 
             if "nli_post_hoc_greedy_sampling" in config.attr_methods:
                 data_point_results = compute_attributions_nli_post_hoc_greedy_sampling(cc, nli_tokenizer, nli_model, data_point_results)
-
-            if "llm_post_hoc" in config.attr_methods:
-                data_point_results = compute_attributions_llm_post_hoc(cc, model, tokenizer, data_point_results)
+            if use_nli:
+                nli_model = nli_model.to("cpu")  # move nli model back to cpu again
 
         except KeyboardInterrupt:
             print("\nKeyboard interrupt! Saving data...")
@@ -724,15 +733,16 @@ def main(config=None):
             print('-'*200)
             data_point_results = {}  # make results for this data point invalid
             # cleanup
+            del cc
             del model 
             gc.collect()
             torch.cuda.empty_cache()
+            # load new model
             try:
                 model, _, _ = load_model(config.model_name, True)
             except Exception as reload_error:
                 print(f"Failed to reaload model: {reload_error}\n\nStopping script...")
                 break
-            cc.model = model
         except Exception as e:
             # print(e)
             traceback.print_exc()
