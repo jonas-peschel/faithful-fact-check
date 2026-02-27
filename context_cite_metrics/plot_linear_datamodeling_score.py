@@ -123,6 +123,8 @@ def main(config=None):
         attr_methods.remove("llm_post_hoc")
     if "nli_post_hoc_greedy_sampling" in attr_methods:
         attr_methods.remove("nli_post_hoc_greedy_sampling")
+    if "longcite_llm_direct" in attr_methods:
+        attr_methods.remove("longcite_llm_direct")
 
     # aggregate mean and standard error of the mean over the data
     mean_lds, sem_lds = aggregate_lds(results, attr_methods)
