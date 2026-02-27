@@ -614,7 +614,7 @@ def main(config=None):
     login(token=HF_TOKEN)
 
     # load data and model
-    model, tokenizer, device = load_model(config.model_name, True) # load veracity classification and justification model (Llama-8B-Instruct)
+    model, tokenizer, device = load_model(config.model_name, True) 
     data = load_data(config.dataset, n_samples=config.n_samples, start_idx=config.start_idx, seed=0)
 
     # load sentence embedding model if semantic similarity is used for attribution
@@ -685,7 +685,7 @@ def main(config=None):
             "batch_size": config.cc_batch_size,
             "prompt_template": PROMPT_TEMPLATE,
             "generate_kwargs": GENERATE_KWARGS,
-            "partitioner": partitioner
+            "partitioner": partitioner,
         }
         cc = LongCiteContextCiter(**cc_kwargs) if config.use_longcite else ContextCiter(**cc_kwargs)
 
