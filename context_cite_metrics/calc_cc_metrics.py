@@ -104,7 +104,7 @@ def calc_top_k_log_prob_drop(cc: ContextCiter, res: dict, attr_methods: List[str
 
         for sent_idx, (start_idx, end_idx) in zip(range(len(answer_statements)), char_spans):
             # add k = #citations by LongCite if used
-            ks = Ks
+            ks = Ks.copy()
             if use_longcite:
                 k_longcite = len(res["methods"]["longcite_llm_direct"]["citations"][sent_idx])
                 if k_longcite not in Ks:
