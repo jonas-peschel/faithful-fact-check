@@ -48,7 +48,10 @@ def aggregate_log_prob_drops(results: dict, ks: List[int] | None, attr_methods: 
     for method in attr_methods:
         drops_method = []   # (n_Ks, n_sentences)
         for data_point_result in results["results"]:
-            top_k_drop_dict = data_point_result["methods"][method]["metrics"]["top_k_drop"]
+            if "metrics" in data_point_result["methods"][method]:
+                top_k_drop_dict = data_point_result["methods"][method]["metrics"]["top_k_drop"]
+            else:  # skip missing data
+                continue
             top_k_drops = []
             if not ks:
                 top_k_drops.append(top_k_drop_dict["top_k_drop_longcite"])

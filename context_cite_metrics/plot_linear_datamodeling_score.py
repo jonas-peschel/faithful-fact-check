@@ -39,7 +39,10 @@ def aggregate_lds(results, attr_methods):
     for method in attr_methods:
         lds_method = []
         for data_point_result in results["results"]:
-            lds_method.extend(data_point_result["methods"][method]["metrics"]["LDS"])
+            if "metrics" in data_point_result["methods"][method]:
+                lds_method.extend(data_point_result["methods"][method]["metrics"]["LDS"])
+            else:  # skip missing data
+                continue
 
         lds.append(lds_method)
 
