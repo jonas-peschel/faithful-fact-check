@@ -5,6 +5,8 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from pathlib import Path
 import re
+from typing import List
+from numpy.typing import NDArray
 from utils import load_json, order_results, METH2COL
 
 def parse_args():
@@ -12,13 +14,14 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Plot results for ContextCite top-k log-prob drop metric.")
     parser.add_argument("results_path", type=str, help="Path to the file where attribution scores and experiment results (metrics) are stored.")
     parser.add_argument("plots_savepath", type=str, help="Path where to save the generated plots.")
+    parser.add_argument("--use_longcite", action="store_true", help="Whether to plot top-k log-prob drop with k=#citations from LongCite model.")
     parser.add_argument("--plot_title", type=str, default="Top-k Log-Probability Drop Metric", help="Title for the plot.")
     parser.add_argument("--ks", type=int, nargs="+", choices=range(1,10), default=None, help="For which k's to plot the results.")
     parser.add_argument("--is_error_bars", action="store_true", help="Whether to plot the error bars with the standard error of the mean.")
 
     return parser.parse_args()
 
-def aggregate_log_prob_drops(results, ks):
+def aggregate_log_prob_drops(results: dict, ks: List[int] | None, attr_methods: List[str]):
     """
     Calculate mean log-prob drop over all sentences in the data for
     each answer attribution method and number of ablations k.
@@ -26,8 +29,11 @@ def aggregate_log_prob_drops(results, ks):
     Args:
         results (Dict):
             Contains the results from metrics computations.
-        ks (List[str]):
-            Numbers of context ablations for which the metric has been computed.
+        ks (List[int] | None):
+            Numbers of context ablations for which the metric has been computed. 
+            None if we use LongCite with only one k with k=#citations by LongCite model.
+        attr_methods (List[str]):
+            Names of attribution methods for which to calculate top-k log-prob drop.
 
     Returns:
         mean_drops (NDArray[float]):
@@ -36,17 +42,18 @@ def aggregate_log_prob_drops(results, ks):
             Standard error of the mean for the log-prob drop values. Shape: (n_methods, n_ks)
     """
 
-    methods = list(results["results"][0]["methods"].keys())
-
     drops = []  # (n_methods, n_Ks, n_sentences)
-    for method in methods:
+    for method in attr_methods:
         drops_method = []   # (n_Ks, n_sentences)
         for data_point_result in results["results"]:
             top_k_drop_dict = data_point_result["methods"][method]["metrics"]["top_k_drop"]
             top_k_drops = []
-            for k in ks:
-                top_k_drops.append(top_k_drop_dict[f"top_{k}_drop"])    
-            top_k_drops = np.array(top_k_drops) # top_k_drops: (n_Ks, n_sentences in this data point)
+            if not ks:
+                top_k_drops.append(top_k_drop_dict["top_k_drop_longcite"])
+            else:
+                for k in ks:
+                    top_k_drops.append(top_k_drop_dict[f"top_{k}_drop"])    
+            top_k_drops = np.array(top_k_drops, ndmin=2) # top_k_drops: (n_Ks, n_sentences in this data point)
             drops_method.append(top_k_drops)
 
         # concatenate for all data_points for the method in drops_method
@@ -65,23 +72,25 @@ def aggregate_log_prob_drops(results, ks):
     return mean_drops, sem_drops
 
 #--- Plotting Function ---#
-def plot_top_k_log_prob_drop(mean_drops, sem_drops, labels, ks, is_error_bars=False, title="Top-k Log-Probability Drop Metric"):
+def plot_top_k_log_prob_drop(mean_drops: NDArray[np.floating], sem_drops: NDArray[np.floating], labels: List[str], 
+                             ks: List[int] | None, is_error_bars: bool=False, title: str="Top-k Log-Probability Drop Metric"):
     """
     Plot bar plot of top-k log-prob drop metric.
 
     Args:
-        mean_drops (NDArray[float]): 
+        mean_drops (NDArray[np.floating]): 
             Top-k log-probability drop for different attribution methods and different k.
             Mean values over data points and answer sentences.
             Shape: (n_methods, n_ks)
-        sem_drops (NDArray[float]):
+        sem_drops (NDArray[np.floating]):
             Standard error of the mean for the top-k log-probability drop for different
             attribution methods and different k.
             Shape: (n_methods, n_ks)
         labels (List[str]):
             Names of the different attribution methods.
-        ks (List[int]):
+        ks (List[int] | None):
             Numbers of context ablations for which the metric has been computed.
+            None if we use LongCite with only one k with k=#citations by LongCite model.
         is_error_bars (bool, optional):
             Whether to plot error bars with the standard error of the mean.
             Defaults to False. 
@@ -108,7 +117,11 @@ def plot_top_k_log_prob_drop(mean_drops, sem_drops, labels, ks, is_error_bars=Fa
 
     ax.set_title(title)
     ax.set_ylabel("Log-prob drop")
-    ax.set_xticks(x + bar_width*(mean_drops.shape[0]-1)/2, [f"k={k}" for k in ks])
+    if ks:
+        xticks_labels = [f"k={k}" for k in ks]
+    else:
+        xticks_labels = [r"$k_{\mathrm{LongCite}}$"]
+    ax.set_xticks(x + bar_width*(mean_drops.shape[0]-1)/2, xticks_labels)
     ax.legend()
     ax.set_axisbelow(True)
     ax.grid(axis="y", linestyle="--", alpha=0.7)
@@ -125,16 +138,20 @@ def main(config=None):
     results_path = Path(config.results_path)
     results = load_json(results_path)
 
-    # use all ks from the data if not provided
-    if config.ks is None:
-        # good luck trying to read this
-        config.ks = [int(re.compile(r"top_(\d+)_drop$").match(key).group(1)) for key in list(list(results["results"][0]["methods"].values())[0]["metrics"]["top_k_drop"].keys())]    
+    if config.use_longcite:
+        config.ks = None 
+    else:  # use all ks from the data if not provided
+        if config.ks is None:
+            # good luck trying to read this
+            config.ks = [int(re.compile(r"top_(\d+)_drop$").match(key).group(1)) for key in list(list(results["results"][0]["methods"].values())[0]["metrics"]["top_k_drop"].keys())]    
+
+    attr_methods = list(results["results"][0]["methods"].keys())
 
     # aggregate mean and standard error of the mean over the data
-    mean_drops, sem_drops = aggregate_log_prob_drops(results, config.ks)
+    mean_drops, sem_drops = aggregate_log_prob_drops(results, config.ks, attr_methods)
 
     # plot and save
-    fig = plot_top_k_log_prob_drop(mean_drops, sem_drops, labels=list(results["results"][0]["methods"].keys()), 
+    fig = plot_top_k_log_prob_drop(mean_drops, sem_drops, labels=attr_methods, 
                                    ks=config.ks, is_error_bars=config.is_error_bars, title=config.plot_title)
 
     plots_savepath = Path(config.plots_savepath)
