@@ -273,7 +273,7 @@ def main(config=None):
         if not data_point_results:
             continue
 
-        context, query = load_datapoint(data_point, config.dataset) # depends on the given dataset
+        context, query = load_datapoint(data_point, config.dataset, config.use_longcite) # depends on the given dataset
         partitioner = LongCiteContextPartitioner(context=context) if config.use_longcite else None
 
         # instantiate ContextCiter for probability calculations
