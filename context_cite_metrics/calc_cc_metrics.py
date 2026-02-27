@@ -1,8 +1,11 @@
 import argparse
 import os
+import gc 
+import traceback
 from pathlib import Path
 from datasets import Dataset
 import numpy as np 
+import torch
 import warnings
 from copy import copy 
 from scipy.stats import spearmanr, ConstantInputWarning
@@ -266,6 +269,10 @@ def main(config=None):
     for idx, data_point in tqdm(enumerate(data, start=config.start_idx), total=len(data)):
 
         data_point_results = results["results"][idx]
+        # skip if results are empty
+        if not data_point_results:
+            continue
+
         context, query = load_datapoint(data_point, config.dataset) # depends on the given dataset
         partitioner = LongCiteContextPartitioner(context=context) if config.use_longcite else None
 
@@ -284,18 +291,49 @@ def main(config=None):
         cc = LongCiteContextCiter(**cc_kwargs) if config.use_longcite else ContextCiter(**cc_kwargs)
         cc._cache["output"] = data_point_results["model_output_full"]  # set original model output
 
-        if "log_prob_drop" in config.metrics:
-            # calculate top-k log-probability drop metric
-            data_point_results = calc_top_k_log_prob_drop(cc, data_point_results, config.attr_methods, config.use_longcite)
+        try:
+            if "log_prob_drop" in config.metrics:
+                # calculate top-k log-probability drop metric
+                data_point_results = calc_top_k_log_prob_drop(cc, data_point_results, config.attr_methods, config.use_longcite)
 
-        if "LDS" in config.metrics:
-            # calculate linear datamodeling score metric
-            data_point_results = calc_linear_datamodeling_score(cc, data_point_results, config.attr_methods)
+            if "LDS" in config.metrics:
+                # calculate linear datamodeling score metric
+                data_point_results = calc_linear_datamodeling_score(cc, data_point_results, config.attr_methods)
+
+        except KeyboardInterrupt:
+            print("\nKeyboard interrupt! Saving data...")
+            break
+        except torch.cuda.OutOfMemoryError as e:
+            print("Cuda out of memory error!")
+            print(idx)
+            print('-'*200)
+            # cleanup
+            del cc
+            del model 
+            gc.collect()
+            torch.cuda.empty_cache()
+            # load new model
+            try:
+                model, _, _ = load_model(config.model_name, True)
+            except Exception as reload_error:
+                print(f"Failed to reaload model: {reload_error}\n\nStopping script...")
+                break
+            continue
+        except Exception as e:
+            traceback.print_exc()
+            print('-'*200)
+            # print(e)
+            # continue 
+            raise e
 
         # add results for the data point to the results
         results["results"][idx] = data_point_results
 
-    # save results to result file
+        # save every 5 data points
+        if (idx+1) % 5 == 0:
+            save_json(results_path, results)
+
+    # finally save all results to result file
     save_json(results_path, results)
 
 if __name__ == "__main__":

@@ -744,10 +744,10 @@ def main(config=None):
                 print(f"Failed to reaload model: {reload_error}\n\nStopping script...")
                 break
         except Exception as e:
-            # print(e)
             traceback.print_exc()
             print('-'*200)
-            data_point_results = {}  # make results for this data point invalid
+            # print(e)
+            # continue 
             raise e
 
         # add results for the data point to the results
