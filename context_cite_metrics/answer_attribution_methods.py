@@ -556,11 +556,11 @@ def compute_attributions_llm_post_hoc(cc: ContextCiter, model: PreTrainedModel, 
                 attr_scores_sent_k = np.zeros(len(cc.sources))
                 attr_scores_sent_k[sentence_indices] = 1    # set attr_scores to 1 for all cited sentences, else 0
                 attr_scores_sent[f"{k}"] = attr_scores_sent_k.tolist()
+                citations_sent[f"{k}"] = sentence_indices.tolist()
             else:
                 attr_scores_sent[f"{k}"] = None  
-
-            citations_sent[f"{k}"] = sentence_indices.tolist()
-            
+                citations_sent[f"{k}"] = None
+   
         attr_scores.append(attr_scores_sent)
         citations.append(citations_sent)
         model_generations.append(model_generations_sent)
