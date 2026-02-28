@@ -6,9 +6,9 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from pathlib import Path
 import re
-from typing import List
+from typing import List, Tuple
 from numpy.typing import NDArray
-from utils import load_json, order_results, METH2COL
+from utils import load_json, order_results, METH2COL, METH2LABEL
 
 def parse_args():
 
@@ -42,6 +42,9 @@ def aggregate_log_prob_drops(results: dict, ks: List[int] | None, attr_methods: 
             Mean log-prob drop values. Shape: (n_methods, n_ks)
         sem_drops (NDArray[float]):
             Standard error of the mean for the log-prob drop values. Shape: (n_methods, n_ks)
+        mask (NDArray[bool]):
+            Which sentences were dropped due to invalid data.
+            Shape: (n_sentences,)
     """
 
     drops = []  # (n_methods, n_Ks, n_sentences)
@@ -74,11 +77,22 @@ def aggregate_log_prob_drops(results: dict, ks: List[int] | None, attr_methods: 
     mean_drops = drops.mean(axis=2) # (n_methods, n_Ks)
     sem_drops = drops.std(axis=2) / np.sqrt(drops.shape[2]) # sem: standard error of the mean
 
-    return mean_drops, sem_drops
+    return mean_drops, sem_drops, mask
+
+def count_longcite_citations(results: dict, mask: NDArray[np.bool_]):
+
+    k_citations = []
+    for data_point_result in results["results"]: 
+        for citations in data_point_result["methods"]["longcite_llm_direct"]["citations"]:
+            k_citations.append(len(citations))
+    k_citations = np.array(k_citations)
+    k_citations = k_citations[mask]
+    mean, std = np.mean(k_citations), np.std(k_citations)
+    return (mean, std)
 
 #--- Plotting Function ---#
 def plot_top_k_log_prob_drop(mean_drops: NDArray[np.floating], sem_drops: NDArray[np.floating], labels: List[str], 
-                             ks: List[int] | None, is_error_bars: bool=False, title: str="Top-k Log-Probability Drop Metric"):
+                             ks: List[int] | None, k_longcite_mean_std: Tuple[float,float] | None=None, is_error_bars: bool=False, title: str="Top-k Log-Probability Drop Metric"):
     """
     Plot bar plot of top-k log-prob drop metric.
 
@@ -96,6 +110,9 @@ def plot_top_k_log_prob_drop(mean_drops: NDArray[np.floating], sem_drops: NDArra
         ks (List[int] | None):
             Numbers of context ablations for which the metric has been computed.
             None if we use LongCite with only one k with k=#citations by LongCite model.
+        k_longcite_mean_std (Tuple[float,float] | None, optional):
+            Mean and standard deviation of how many sources were cited by LongCite model
+            for all sentences/statements.
         is_error_bars (bool, optional):
             Whether to plot error bars with the standard error of the mean.
             Defaults to False. 
@@ -114,7 +131,7 @@ def plot_top_k_log_prob_drop(mean_drops: NDArray[np.floating], sem_drops: NDArra
     for mean, sem, label in zip(mean_drops, sem_drops, labels):
         offset = bar_width * multiplier 
         if is_error_bars:
-            rects = ax.bar(x+offset, mean, bar_width, label=label, 
+            rects = ax.bar(x+offset, mean, bar_width, label=METH2LABEL[label], 
                         edgecolor="white", linewidth=0.5, color=METH2COL[label], yerr=sem, capsize=2, error_kw={"ecolor": "black", "lw": 1.0})
         else:
             rects = ax.bar(x+offset, mean, bar_width, label=label, edgecolor="white", linewidth=0.5, color=METH2COL[label])
@@ -125,7 +142,8 @@ def plot_top_k_log_prob_drop(mean_drops: NDArray[np.floating], sem_drops: NDArra
     if ks:
         xticks_labels = [f"k={k}" for k in ks]
     else:
-        xticks_labels = [r"$k_{\mathrm{LongCite}}$"]
+        k_citations_mean, k_citations_std = k_longcite_mean_std
+        xticks_labels = [fr"$k_{{\mathrm{{LongCite}}}} (\approx {k_citations_mean:.1f} \pm {k_citations_std:.1f})$"]
     ax.set_xticks(x + bar_width*(mean_drops.shape[0]-1)/2, xticks_labels)
     ax.legend(bbox_to_anchor=(1.04, 0), loc="lower left", borderaxespad=0)  # place legend outside of plot
     ax.set_axisbelow(True)
@@ -148,8 +166,7 @@ def main(config=None):
     else:  # use all ks from the data if not provided
         if config.ks is None:
             # good luck trying to read this
-            config.ks = [int(match.group(1)) for match in [re.compile(r"top_(\d+)_drop").match(key) for key in list(list(results["results"][0]["methods"].values())[0]["metrics"]["top_k_drop"].keys())] if match]    
-    
+            config.ks = [int(match.group(1)) for match in [re.compile(r"top_(\d+)_drop").match(key) for key in list(list(results["results"][0]["methods"].values())[0]["metrics"]["top_k_drop"].keys())] if match]
 
     attr_methods = list(results["results"][0]["methods"].keys())
     for excluded_attr_method in config.excluded_attr_methods:
@@ -159,11 +176,13 @@ def main(config=None):
             warnings.warn(f"Tried to exclude method {excluded_attr_method} but it was never included.")
 
     # aggregate mean and standard error of the mean over the data
-    mean_drops, sem_drops = aggregate_log_prob_drops(results, config.ks, attr_methods)
+    mean_drops, sem_drops, mask = aggregate_log_prob_drops(results, config.ks, attr_methods)
+
+    k_longcite_mean_std = count_longcite_citations(results, mask) if config.use_longcite else None
 
     # plot and save
-    fig = plot_top_k_log_prob_drop(mean_drops, sem_drops, labels=attr_methods, 
-                                   ks=config.ks, is_error_bars=config.is_error_bars, title=config.plot_title)
+    fig = plot_top_k_log_prob_drop(mean_drops, sem_drops, labels=attr_methods, ks=config.ks, 
+                                   k_longcite_mean_std=k_longcite_mean_std, is_error_bars=config.is_error_bars, title=config.plot_title)
 
     plots_savepath = Path(config.plots_savepath)
     plots_savepath.parent.mkdir(exist_ok=True, parents=True)

@@ -4,7 +4,7 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from pathlib import Path
-from utils import load_json, order_results, METH2COL
+from utils import load_json, order_results, METH2COL, METH2LABEL, DATASET2LABEL
 
 def parse_args():
 
@@ -90,7 +90,7 @@ def plot_linear_datamodeling_score(mean_lds, sem_lds, labels, dataset_name, is_e
     for mean, sem, label in zip(mean_lds, sem_lds, labels):
         offset = bar_width * multiplier 
         if is_error_bars:
-            rects = ax.bar(x+offset, mean, bar_width, label=label, 
+            rects = ax.bar(x+offset, mean, bar_width, label=METH2LABEL[label], 
                         edgecolor="white", linewidth=0.5, color=METH2COL[label], yerr=sem, capsize=2, error_kw={"ecolor": "black", "lw": 1.0})
         else:
             rects = ax.bar(x+offset, mean, bar_width, label=label, edgecolor="white", linewidth=0.5, color=METH2COL[label])
@@ -98,7 +98,7 @@ def plot_linear_datamodeling_score(mean_lds, sem_lds, labels, dataset_name, is_e
 
     ax.set_title(title)
     ax.set_ylabel("Linear datamodeling score")
-    ax.set_xticks(x + bar_width*(mean_lds.shape[0]-1)/2, [dataset_name])
+    ax.set_xticks(x + bar_width*(mean_lds.shape[0]-1)/2, [DATASET2LABEL[dataset_name]])
     ax.legend(bbox_to_anchor=(1.04, 0), loc="lower left", borderaxespad=0)  # place legend outside of plot
     ax.set_axisbelow(True)
     ax.grid(axis="y", linestyle="--", alpha=0.7)

@@ -176,19 +176,40 @@ CC_GENERATE_KWARGS = {"do_sample": False, "max_new_tokens": 512}
 
 # plot colors for the different attribution methods
 METH2COL = {
-        "context_cite_256": '#1f77b4',
-        "context_cite_128": '#5392c0',
-        "context_cite_64": '#78add2',
-        "context_cite_32": '#accde5',
-        "semantic_similarity": '#2ca02c',
-        "leave_one_out": '#9467bd',
-        "nli_post_hoc_naive": '#d3d3d3',
-        "nli_post_hoc_sliding_window_3": '#7f7f7f',
-        "nli_post_hoc_sliding_window_5": "#484848",
-        "nli_post_hoc_greedy_sampling": '#333333',
-        "llm_post_hoc": '#bcbd22',
-        "longcite_llm_direct": '#e377c2',
-    }
+    "context_cite_256": '#1f77b4',
+    "context_cite_128": '#5392c0',
+    "context_cite_64": '#78add2',
+    "context_cite_32": '#accde5',
+    "semantic_similarity": '#2ca02c',
+    "leave_one_out": '#9467bd',
+    "nli_post_hoc_naive": '#d3d3d3',
+    "nli_post_hoc_sliding_window_3": '#7f7f7f',
+    "nli_post_hoc_sliding_window_5": "#484848",
+    "nli_post_hoc_greedy_sampling": '#333333',
+    "llm_post_hoc": '#bcbd22',
+    "longcite_llm_direct": '#e377c2',
+}
+
+# prettier label names for the different attribution methods
+METH2LABEL = {
+    "context_cite_256": r"$\it{ContextCite}$ (256 calls)",
+    "context_cite_128": r"$\it{ContextCite}$ (128 calls)",
+    "context_cite_64": r"$\it{ContextCite}$ (64 calls)",
+    "context_cite_32": r"$\it{ContextCite}$ (32 calls)",
+    "semantic_similarity": "Similarity",
+    "leave_one_out": "Leave-one-out",
+    "nli_post_hoc_naive": "NLI (window size: 1)",
+    "nli_post_hoc_sliding_window_3": "NLI (window size: 3)",
+    "nli_post_hoc_sliding_window_5": "NLI (window size: 5)",
+    "nli_post_hoc_greedy_sampling": "NLI greedy sampling",
+    "llm_post_hoc": "LLM post-hoc (Llama-3.1-8B-Instruct)",
+    "longcite_llm_direct": r"$\it{LongCite}$",
+}
+
+# prettier label names for the different datasets
+DATASET2LABEL = {
+    "cnn_daily_mail": "CNN DailyMail",
+}
 
 def order_results(mean_results, std_results, labels):
 
