@@ -559,7 +559,7 @@ def compute_attributions_llm_post_hoc(cc: ContextCiter, model: PreTrainedModel, 
             else:
                 attr_scores_sent[f"{k}"] = None  
 
-            citations_sent[f"{k}"] = sentence_indices
+            citations_sent[f"{k}"] = sentence_indices.tolist()
             
         attr_scores.append(attr_scores_sent)
         citations.append(citations_sent)
