@@ -16,7 +16,7 @@ def parse_args():
     parser.add_argument("results_path", type=str, help="Path to the file where attribution scores and experiment results (metrics) are stored.")
     parser.add_argument("plots_savepath", type=str, help="Path where to save the generated plots.")
     parser.add_argument("--use_longcite", action="store_true", help="Whether to plot top-k log-prob drop with k=#citations from LongCite model.")
-    parser.add_argument("--excluded_attr_methods", type=str, nargs="*", choices=["context_cite_32", "context_cite_64", "context_cite_128", "context_cite_256", "semantic_similarity", "leave_one_out", "nli_post_hoc_naive", "nli_post_hoc_sliding_window_3", "nli_post_hoc_sliding_window_5", "nli_post_hoc_greedy_sampling", "llm_post_hoc", "longcite_llm_direct"], default=None, help="Attribution methods not to include in the plot.")
+    parser.add_argument("--excluded_attr_methods", type=str, nargs="*", choices=["context_cite_32", "context_cite_64", "context_cite_128", "context_cite_256", "semantic_similarity", "leave_one_out", "nli_post_hoc_naive", "nli_post_hoc_sliding_window_3", "nli_post_hoc_sliding_window_5", "nli_post_hoc_greedy_sampling", "llm_post_hoc", "longcite_llm_direct"], default=[], help="Attribution methods not to include in the plot.")
     parser.add_argument("--plot_title", type=str, default="Top-k Log-Probability Drop Metric", help="Title for the plot.")
     parser.add_argument("--ks", type=int, nargs="+", choices=range(1,10), default=None, help="For which k's to plot the results.")
     parser.add_argument("--is_error_bars", action="store_true", help="Whether to plot the error bars with the standard error of the mean.")
