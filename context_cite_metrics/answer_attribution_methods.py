@@ -495,6 +495,7 @@ def compute_attributions_llm_post_hoc(cc: ContextCiter, model: PreTrainedModel, 
                 messages,
                 add_generation_prompt=True,
                 return_tensors="pt",
+                return_dict=True,
             ).to(device)
 
         return prompt_ids
