@@ -148,7 +148,8 @@ def main(config=None):
     else:  # use all ks from the data if not provided
         if config.ks is None:
             # good luck trying to read this
-            config.ks = [int(re.compile(r"top_(\d+)_drop$").match(key).group(1)) for key in list(list(results["results"][0]["methods"].values())[0]["metrics"]["top_k_drop"].keys())]    
+            config.ks = [int(match.group(1)) for match in [re.compile(r"top_(\d+)_drop").match(key) for key in list(list(results["results"][0]["methods"].values())[0]["metrics"]["top_k_drop"].keys())] if match]    
+    
 
     attr_methods = list(results["results"][0]["methods"].keys())
     for excluded_attr_method in config.excluded_attr_methods:
