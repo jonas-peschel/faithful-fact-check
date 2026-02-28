@@ -541,7 +541,8 @@ def compute_attributions_llm_post_hoc(cc: ContextCiter, model: PreTrainedModel, 
             # build prompt and perform inference
             system_prompt_text, user_prompt_text = get_prompt_text(sent, cc.sources, k)
             input_ids = get_prompt_ids(system_prompt_text, user_prompt_text, model, tokenizer, model.device)
-            output_ids = model.generate(**input_ids, **CITATION_GENERATION_KWARGS)
+            with torch.inference_mode():
+                output_ids = model.generate(**input_ids, **CITATION_GENERATION_KWARGS)
             output_text = tokenizer.decode(output_ids.squeeze()[input_ids["input_ids"].shape[1]:])
 
             model_generations_sent[f"{k}"] = output_text
