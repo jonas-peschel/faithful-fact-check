@@ -127,7 +127,7 @@ def plot_top_k_log_prob_drop(mean_drops: NDArray[np.floating], sem_drops: NDArra
     else:
         xticks_labels = [r"$k_{\mathrm{LongCite}}$"]
     ax.set_xticks(x + bar_width*(mean_drops.shape[0]-1)/2, xticks_labels)
-    ax.legend()
+    ax.legend(bbox_to_anchor=(1.04, 0), loc="lower left", borderaxespad=0)  # place legend outside of plot
     ax.set_axisbelow(True)
     ax.grid(axis="y", linestyle="--", alpha=0.7)
 
@@ -166,7 +166,7 @@ def main(config=None):
 
     plots_savepath = Path(config.plots_savepath)
     plots_savepath.parent.mkdir(exist_ok=True, parents=True)
-    fig.savefig(plots_savepath)
+    fig.savefig(plots_savepath, bbox_inches="tight")
 
 
 if __name__ == "__main__":
