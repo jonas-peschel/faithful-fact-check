@@ -657,10 +657,8 @@ def main(config=None):
         # load existing results file to append the new results to
         results = load_json(results_path)
 
-        # check that the old experiment used the same dataset and model and ContextCiter args
+        # check that the old experiment used the same dataset
         assert results["metadata"]["dataset"] == config.dataset, "Existing results should come from the same dataset as new results to compute."
-        assert results["metadata"]["model"] == config.model_name, "Existing results should use the same language model as new results to compute."
-
 
     for idx, data_point in tqdm(enumerate(data, start=config.start_idx), total=len(data)):
         # check if other results for this data point exist already, if not add new entry
