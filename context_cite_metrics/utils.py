@@ -66,7 +66,7 @@ def load_data(dataset_name, n_samples, start_idx, seed=0):
         # sample max 1000 samples and take the first n_samples
         # that way, results from different runs with different n_samples will use the same datapoints in the beginning
         np.random.seed(seed)
-        idxs = np.random.choice(len(dataset), 1000, replace=False)
+        idxs = np.random.choice(len(dataset), min(1000, len(dataset)), replace=False)
         idxs = idxs[start_idx:start_idx+n_samples]
         dataset_sampled = dataset.select(idxs)
 
@@ -83,7 +83,18 @@ def load_data(dataset_name, n_samples, start_idx, seed=0):
         # sample max 1000 samples and take the first n_samples
         # that way, results from different runs with different n_samples will use the same datapoints in the beginning
         np.random.seed(seed)
-        idxs = np.random.choice(len(dataset), 1000, replace=False)
+        idxs = np.random.choice(len(dataset), min(1000, len(dataset)), replace=False)
+        idxs = idxs[start_idx:start_idx+n_samples]
+        dataset_sampled = dataset.select(idxs)
+
+    # Dataset 3: AVeriTeC
+    if dataset_name == "averitec":
+        dataset = load_dataset("jonaspeschel/AVeriTeC-with-scraped-gold-evidence")
+
+        # sample max 1000 samples and take the first n_samples
+        # that way, results from different runs with different n_samples will use the same datapoints in the beginning
+        np.random.seed(seed)
+        idxs = np.random.choice(len(dataset), min(1000, len(dataset)), replace=False)
         idxs = idxs[start_idx:start_idx+n_samples]
         dataset_sampled = dataset.select(idxs)
     
@@ -94,7 +105,6 @@ def load_datapoint(datapoint, dataset_name, use_longcite):
 
     # Dataset 1: CNN DailyMail
     if dataset_name == "cnn_daily_mail":
-
         context = datapoint["article"]
         if use_longcite:
             query = "Please summarize the article in up to three statements."
@@ -103,8 +113,16 @@ def load_datapoint(datapoint, dataset_name, use_longcite):
 
     # Dataset 2: DRUID
     if dataset_name == "druid":
-
         context = datapoint["evidence"]
+
+        # fact-checking query + claim
+        query = "You are an expert fact-checker. You are provided with a claim and related evidence. Based only on the provided evidence, determine if the given claim is either supported or refuted."
+        query += " Write a paragraph that justifies your decision and the reasons why you decided to classify the claim in the way that you did."
+        query += f"\n\nClaim: {datapoint["claim"]}"
+
+    # Dataset 3: AVeriTeC
+    if dataset_name == "averitec":
+        context = "\n\n".join(datapoint["scraped_evidences"])
 
         # fact-checking query + claim
         query = "You are an expert fact-checker. You are provided with a claim and related evidence. Based only on the provided evidence, determine if the given claim is either supported or refuted."
@@ -121,6 +139,10 @@ def load_cc_prompt_template(dataset_name):
     
     # Dataset 2: DRUID
     if dataset_name == "druid":
+        return "Query: {query}\n\nEvidence: {context}"
+
+    # Dataset 3: AVeriTeC
+    if dataset_name == "averitec":
         return "Query: {query}\n\nEvidence: {context}"
 
 #--- dataset helper methods end ---#
