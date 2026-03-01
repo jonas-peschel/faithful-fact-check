@@ -413,7 +413,8 @@ def compute_attributions_nli_post_hoc_greedy_sampling(cc: ContextCiter, nli_toke
         if res["methods"].get("longcite_llm_direct"):
             n = len(res["methods"]["longcite_llm_direct"]["citations"][i])
             if n > 5:
-                k = n
+                k = n 
+        k = min(k, len(cc.sources))  # avoid bug where we try to cite more sources then there are
 
         for _ in range(k):
             dataloader = DataLoader(dataset, shuffle=False, batch_size=cc.batch_size)
