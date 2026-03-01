@@ -125,7 +125,7 @@ def load_datapoint(datapoint, dataset_name, use_longcite):
         context = "\n\n".join(datapoint["scraped_evidences"])
 
         # fact-checking query + claim
-        query = "You are an expert fact-checker. You are provided with a claim and related evidence. Based only on the provided evidence, determine if the given claim is either supported or refuted."
+        query = "You are an expert fact-checker. You are provided with a claim and related evidence. Based only on the provided evidence, determine if the given claim is either supported, refuted, has conflicting evidence, or has not enough evidence to determine its veracity."
         query += " Write a paragraph that justifies your decision and the reasons why you decided to classify the claim in the way that you did."
         query += f"\n\nClaim: {datapoint["claim"]}"
 
@@ -146,6 +146,27 @@ def load_cc_prompt_template(dataset_name):
         return "Query: {query}\n\nEvidence: {context}"
 
 #--- dataset helper methods end ---#
+
+def load_model(model_name, is_quantize):
+
+    quantization_config = BitsAndBytesConfig(
+        load_in_4bit=True,
+        bnb_4bit_compute_dtype=torch.float16,
+        bnb_4bit_use_double_quant=True,
+        bnb_4bit_quant_type="nf4"
+    ) if is_quantize else None
+
+    tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
+    tokenizer.padding_side = "left" # set padding side to left for batch inference with ContextCite
+    tokenizer.pad_token_id = tokenizer.eos_token_id
+    model = AutoModelForCausalLM.from_pretrained(model_name, device_map="auto", torch_dtype=torch.bfloat16, 
+                                                 quantization_config=quantization_config, trust_remote_code=True) 
+    device = model.device
+
+    return model, tokenizer, device
+
+
+CC_GENERATE_KWARGS = {"do_sample": False, "max_new_tokens": 512}
 
 #--- atttribution methods helper functions ---#
 def get_nli_entailment_probs(nli_tokenizer, nli_model, dataloader):
@@ -172,27 +193,6 @@ def get_nli_entailment_probs(nli_tokenizer, nli_model, dataloader):
 
     return entailment_probs
 #--- atttribution methods helper functions end---#
-
-def load_model(model_name, is_quantize):
-
-    quantization_config = BitsAndBytesConfig(
-        load_in_4bit=True,
-        bnb_4bit_compute_dtype=torch.float16,
-        bnb_4bit_use_double_quant=True,
-        bnb_4bit_quant_type="nf4"
-    ) if is_quantize else None
-
-    tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
-    tokenizer.padding_side = "left" # set padding side to left for batch inference with ContextCite
-    tokenizer.pad_token_id = tokenizer.eos_token_id
-    model = AutoModelForCausalLM.from_pretrained(model_name, device_map="auto", torch_dtype=torch.bfloat16, 
-                                                 quantization_config=quantization_config, trust_remote_code=True) 
-    device = model.device
-
-    return model, tokenizer, device
-
-
-CC_GENERATE_KWARGS = {"do_sample": False, "max_new_tokens": 512}
 
 #--- Plotting utils ---#
 
