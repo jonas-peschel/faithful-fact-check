@@ -17,9 +17,6 @@ from context_cite import ContextCiter
 from context_cite.utils import _get_response_logit_probs, aggregate_logit_probs
 from tqdm.auto import tqdm
 import re
-import nltk
-from nltk import sent_tokenize
-nltk.download("punkt_tab")
 from typing import List, Union
 from numpy.typing import NDArray
 from utils import load_json, save_json, load_data, load_datapoint, load_cc_prompt_template, split_model_answer, load_model, get_nli_entailment_probs, CC_GENERATE_KWARGS
