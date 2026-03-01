@@ -89,7 +89,7 @@ def load_data(dataset_name, n_samples, start_idx, seed=0):
 
     # Dataset 3: AVeriTeC
     if dataset_name == "averitec":
-        dataset = load_dataset("jonaspeschel/AVeriTeC-with-scraped-gold-evidence")
+        dataset = load_dataset("jonaspeschel/AVeriTeC-with-scraped-gold-evidence", split="train")
 
         # sample max 1000 samples and take the first n_samples
         # that way, results from different runs with different n_samples will use the same datapoints in the beginning
