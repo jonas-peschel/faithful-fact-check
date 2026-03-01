@@ -84,7 +84,8 @@ def count_longcite_citations(results: dict, mask: NDArray[np.bool_]):
     k_citations = []
     for data_point_result in results["results"]: 
         for citations in data_point_result["methods"]["longcite_llm_direct"]["citations"]:
-            k_citations.append(len(citations))
+            if citations:
+                k_citations.append(len(citations))
     k_citations = np.array(k_citations)
     k_citations = k_citations[mask]
     mean, std = np.mean(k_citations), np.std(k_citations)
