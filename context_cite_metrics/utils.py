@@ -231,6 +231,7 @@ METH2LABEL = {
 # prettier label names for the different datasets
 DATASET2LABEL = {
     "cnn_daily_mail": "CNN DailyMail",
+    "averitec": "AVeriTeC (gold evidence)"
 }
 
 def order_results(mean_results, std_results, labels):
