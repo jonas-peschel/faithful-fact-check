@@ -107,6 +107,9 @@ def calc_top_k_log_prob_drop(cc: ContextCiter, res: dict, attr_methods: List[str
             ks = Ks.copy()
             if use_longcite:
                 k_longcite = len(res["methods"]["longcite_llm_direct"]["citations"][sent_idx])
+                # skip statement if LongCite generated no citations (meaning it does not have to be cited in most cases)
+                if k_longcite == 0:
+                    continue
                 if k_longcite not in Ks:
                     ks.append(k_longcite)
 
@@ -164,7 +167,7 @@ def calc_top_k_log_prob_drop(cc: ContextCiter, res: dict, attr_methods: List[str
                 
     return res
 
-def calc_linear_datamodeling_score(cc: ContextCiter, res: dict, attr_methods: List[str]):
+def calc_linear_datamodeling_score(cc: ContextCiter, res: dict, attr_methods: List[str], use_longcite: bool):
     """Calculate linear datamodeling score metric for each sentence for a single data point."""
 
     def prepare_results_dict(res: dict, attr_methods: List[str]):
@@ -204,6 +207,12 @@ def calc_linear_datamodeling_score(cc: ContextCiter, res: dict, attr_methods: Li
     answer_statements = res["answer_statements"]
     char_spans = res["answer_statement_char_spans"]
     for sent_idx, (start_idx, end_idx) in zip(range(len(answer_statements)), char_spans):
+
+        # skip statement if LongCite generated no citations (meaning it does not have to be cited in most cases)
+        if use_longcite:
+            k_longcite = len(res["methods"]["longcite_llm_direct"]["citations"][sent_idx])
+            if k_longcite == 0:
+                continue
 
         # aggregate logit_probs for the current sentence to get the true response generation probabilities f
         ids_start_idx, ids_end_idx = cc._indices_to_token_indices(start_idx, end_idx)
@@ -298,7 +307,7 @@ def main(config=None):
 
             if "LDS" in config.metrics:
                 # calculate linear datamodeling score metric
-                data_point_results = calc_linear_datamodeling_score(cc, data_point_results, config.attr_methods)
+                data_point_results = calc_linear_datamodeling_score(cc, data_point_results, config.attr_methods, config.use_longcite)
 
         except KeyboardInterrupt:
             print("\nKeyboard interrupt! Saving data...")
