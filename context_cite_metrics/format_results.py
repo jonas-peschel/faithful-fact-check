@@ -64,7 +64,7 @@ def format_results(results_paths, attr_method, use_longcite):
                     "idx": idx,
                     "dataset": dataset,
                     "query": query,
-                    "prediction": cc._cache["output"],
+                    "prediction": cc.response.strip(),
                     "answer": None,
                     "few_shot_scores": None,
                 }
