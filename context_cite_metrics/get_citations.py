@@ -1,0 +1,104 @@
+import argparse 
+from utils import load_json, save_json
+import numpy as np
+from scipy import special 
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Convert attribution scores into discrete citations using thresholding and filtering.")
+    parser.add_argument("--results_paths", type=str, default=None, nargs="+", help="Paths to the ContextCite metrics results files.")
+    parser.add_argument("--attr_methods", type=str, default=None, nargs="+", choices=["context_cite_32", "context_cite_64", "context_cite_128", "context_cite_256"])
+
+    return parser.parse_args() 
+
+def get_citations_context_cite(scores):
+    """Extract citations from ContextCite attribution scores according to the
+    method described in SelfCite paper Appendix B.2
+    """
+    # hyperparameters
+    t = 1.5 
+    p = 0.7 
+    k = 4
+
+    scores = np.array(scores)
+    idxs = np.array(range(len(scores)))
+
+    # 1. filtering
+    mask = scores >= t
+    if not mask.any():
+        return []
+    idxs = idxs[mask] 
+
+    # 2. merging adjacent scores 
+    spans = []
+    i = 0
+    while(i < len(idxs)):
+        if i == 0:
+            span = [idxs[0]]
+        else:
+            if idxs[i-1] == idxs[i] - 1:
+                span.append(idxs[i])
+            else:
+                spans.append(span)
+                span = [idxs[i]]
+        i += 1
+        if i == len(idxs):
+            spans.append(span)
+
+    for i, span in enumerate(spans):
+        spans[i] = np.array(span)
+
+    merged_scores = np.array([np.max(scores[span]) for span in spans])
+
+    # 3. softmax normalization 
+    norm_scores = special.softmax(merged_scores)
+
+    # 4. top-p selection 
+    order = np.argsort(norm_scores)[::-1]
+    spans = [spans[i] for i in order]
+    norm_scores = norm_scores[order]
+
+    selected_spans = []
+    summed_scores = 0
+    for span, score in zip(spans, norm_scores):
+        selected_spans.append(span)
+        summed_scores += score 
+        if summed_scores >= p:
+            break 
+
+    # 5. top-k filtering 
+    selected_spans = selected_spans[:k]
+
+    # return citations as list
+    citations = []
+    for span in selected_spans:
+        citations.extend(span.tolist())
+    return citations
+
+def get_citations(results_paths, attr_methods):
+
+    for results_path in results_paths:
+        results = load_json(results_path)
+        for i, data_point_results in enumerate(results["results"]):
+            for attr_method in attr_methods:
+                attr_scores = data_point_results["methods"][attr_method]["attr_scores"]
+
+                # different thresholding and filtering parameters/approaches for different attribution methods
+                if attr_method in ["context_cite_32", "context_cite_64", "context_cite_128", "context_cite_256"]:
+                    citations = [get_citations_context_cite(attr_scores_sent) for attr_scores_sent in attr_scores]
+                else:
+                    pass  # TODO 
+
+                data_point_results["methods"][attr_method]["citations"] = citations
+            results["results"][i] = data_point_results
+        save_json(results_path, results)
+
+def main(config=None):
+
+    if config is None:
+        config = parse_args()
+
+    get_citations(config.results_paths, config.attr_methods)
+
+
+if __name__ == "__main__":
+    main()
