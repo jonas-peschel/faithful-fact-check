@@ -505,7 +505,7 @@ def compute_attributions_llm_post_hoc(cc: ContextCiter, model: PreTrainedModel, 
         sentence_indices = reg_ex.findall(model_answer)
 
         sentence_indices = [int(idx) for idx in sentence_indices]
-        sentence_indices = np.array(sentence_indices)
+        sentence_indices = np.array(sentence_indices, dtype=int)
 
         # validate
         if len(sentence_indices) < k:
@@ -532,7 +532,7 @@ def compute_attributions_llm_post_hoc(cc: ContextCiter, model: PreTrainedModel, 
         ks = [1,3,5]   
         if res["methods"].get("longcite_llm_direct"):
             n = len(res["methods"]["longcite_llm_direct"]["citations"][i])
-            if n not in ks:
+            if n not in ks and n >= 1:
                 ks.append(n)
                 ks = sorted(ks)
 
