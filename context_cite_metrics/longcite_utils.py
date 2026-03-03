@@ -196,7 +196,6 @@ class TokenToCharsWrapper:
 
     
 #--- subclass of ContextCiter and BaseContextPartitioner to work with LongCite-8B model and tokenizer ---#
-
 class LongCiteContextPartitioner(BaseContextPartitioner):
 
     def __init__(self, context: str):
@@ -233,9 +232,12 @@ class LongCiteContextPartitioner(BaseContextPartitioner):
             mask = np.ones(self.num_sources, dtype=bool)
         separators = np.array(self.separators)[mask]
         parts = np.array(self.parts)[mask]
-        context = "".join([part + sep for part,sep in zip(parts, separators)])
+        context = ""
+        for i, (part, sep) in enumerate(zip(parts, separators), start=1):
+            context += part 
+            if i < len(parts):
+                context += sep
         return context
-
 
 LONGCITE_GENERATE_KWARGS = {
     "max_new_tokens": 1024,
