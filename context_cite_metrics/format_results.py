@@ -1,7 +1,9 @@
 import argparse
 from pathlib import Path 
+import numpy as np
 from transformers import AutoTokenizer
-from context_cite import ContextCiter 
+from context_cite import ContextCiter
+from context_cite.context_partitioner import SimpleContextPartitioner
 from utils import load_json, save_json, load_data, load_datapoint, load_cc_prompt_template, CC_GENERATE_KWARGS
 from longcite_utils import LongCiteContextCiter, LongCiteContextPartitioner, LONGCITE_GENERATE_KWARGS, LONGCITE_PROMPT_TEMPLATE
 
@@ -12,6 +14,23 @@ def parse_args():
     parser.add_argument("--use_longcite", action="store_true", help="Whether to use answer statements and context partioning from LongCite.")
 
     return parser.parse_args()
+
+def merge_citation_spans(citation_idxs):
+    spans = []
+    i = 0
+    while(i < len(citation_idxs)):
+        if i == 0:
+            span = [citation_idxs[0]]
+        else:
+            if citation_idxs[i-1] == citation_idxs[i] - 1:
+                span.append(citation_idxs[i])
+            else:
+                spans.append(span)
+                span = [citation_idxs[i]]
+        i += 1
+        if i == len(citation_idxs):
+            spans.append(span)
+    return spans
 
 def format_results(results_paths, attr_method, use_longcite):
     """Format the results from ContextCite metrics calculations for a single attribution method but potentially for
@@ -37,7 +56,7 @@ def format_results(results_paths, attr_method, use_longcite):
         for data_point_results, data_point in zip(results["results"], data):
             idx = data_point_results["instance_idx"]
             context, query = load_datapoint(data_point, dataset, use_longcite) # depends on the given dataset
-            partitioner = LongCiteContextPartitioner(context=context) if use_longcite else None
+            partitioner = LongCiteContextPartitioner(context=context) if use_longcite else SimpleContextPartitioner(context=context)
 
             cc_kwargs = {
                 "model": None,  # don't need model inference here
@@ -49,40 +68,28 @@ def format_results(results_paths, attr_method, use_longcite):
                 "partitioner": partitioner,
             }
             cc = LongCiteContextCiter(**cc_kwargs) if use_longcite else ContextCiter(**cc_kwargs)
-            
-            if use_longcite:
-                # if use_longcite we can set the full model output and use the LongCite results dict
-                # we have to set the citations in the full model output according to the citations for
-                # the corresponding attribution method (or leave it as it was if attr_method is LongCite)
-                if attr_method == "longcite_llm_direct":
-                    cc._cache["output"] = data_point_results["model_output_full"]
-                else:
-                    pass  # TODO
 
-                longcite_results = cc.response_dict
-                formatted_data_point_result = {
-                    "idx": idx,
-                    "dataset": dataset,
-                    "query": query,
-                    "prediction": cc.response.strip(),
-                    "answer": None,
-                    "few_shot_scores": None,
-                }
-                # format statements with citations
-                statements =[]
-                for statement in longcite_results["all_statements"]:
-                    if not statement["statement"].strip():
-                        continue
-                    citation = []
-                    if statement["citation"]:
-                        for citation_dict in statement["citation"]:
-                            citation.append({"cite": citation_dict["cite"]})
-                    statements.append({"statement": statement["statement"], "citation": citation})
-                formatted_data_point_result["statements"] = statements 
-
-            else:
-                pass  # TODO maybe
-
+            formatted_data_point_result = {
+                "idx": idx,
+                "dataset": dataset,
+                "query": query,
+                "prediction": data_point_results["model_answer"],
+                "answer": None,
+                "few_shot_scores": None,
+            }
+        
+            statements = []
+            answer_statements = data_point_results["answer_statements"]
+            citations = data_point_results["methods"][attr_method]["citations"]
+            for statement, citation_idxs in zip(answer_statements, citations):
+                citation_texts = []
+                for cite_span in merge_citation_spans(citation_idxs):
+                    mask = np.zeros(len(cc.sources), dtype=bool)
+                    mask[cite_span] = True 
+                    citation_text = partitioner.get_context(mask)
+                    citation_texts.append({"cite": citation_text}) 
+                statements.append({"statement": statement, "citation": citation_texts})
+            formatted_data_point_result["statements"] = statements
             formatted_data_point_results.append(formatted_data_point_result)
 
     # save formatted data
