@@ -1,5 +1,4 @@
 import argparse
-from pathlib import Path 
 import numpy as np
 from transformers import AutoTokenizer
 from context_cite import ContextCiter
@@ -10,8 +9,9 @@ from longcite_utils import LongCiteContextCiter, LongCiteContextPartitioner, LON
 def parse_args():
     parser = argparse.ArgumentParser(description="Utils script for formatting the ContextCite metrics results (for single model and attribution method but for possibly multiple datasets) for citation & correctness evaluation.")
     parser.add_argument("--results_paths", type=str, default=None, nargs="+", help="Paths to the ContextCite metrics results files.")
-    parser.add_argument("--attr_method", type=str, choices=["longcite_llm_direct"])
+    parser.add_argument("--attr_method", type=str, choices=["context_cite_32", "context_cite_64", "context_cite_128", "context_cite_256", "semantic_similarity", "leave_one_out", "nli_post_hoc_naive", "nli_post_hoc_sliding_window", "nli_post_hoc_greedy_sampling", "llm_post_hoc", "longcite_llm_direct"], required=True, help="Which answer attribution methods to use.")
     parser.add_argument("--use_longcite", action="store_true", help="Whether to use answer statements and context partioning from LongCite.")
+    parser.add_argument("--save_file_name", type=str, default=None, help="Extension to the save file name.")
 
     return parser.parse_args()
 
@@ -32,7 +32,7 @@ def merge_citation_spans(citation_idxs):
             spans.append(span)
     return spans
 
-def format_results(results_paths, attr_method, use_longcite):
+def format_results(results_paths, attr_method, use_longcite, save_file_name):
     """Format the results from ContextCite metrics calculations for a single attribution method but potentially for
     multiple different datasets to be suitable for citation quality and correctness evaluation. 
     Save the formatted results in scores_cite/ folder.
@@ -93,7 +93,8 @@ def format_results(results_paths, attr_method, use_longcite):
             formatted_data_point_results.append(formatted_data_point_result)
 
     # save formatted data
-    save_path = Path(f"results_formatted/{model_name.split("/")[-1]}_{attr_method}.json")
+    save_name = f"results_formatted/{model_name.split("/")[-1]}_{attr_method}"
+    save_path = f"{save_name}_{save_file_name}.json" if save_file_name else f"{save_name}.json"
     save_json(save_path, formatted_data_point_results)
 
 def main(config=None):
@@ -101,7 +102,7 @@ def main(config=None):
     if config is None:
         config = parse_args() 
 
-    format_results(config.results_paths, config.attr_method, config.use_longcite)
+    format_results(config.results_paths, config.attr_method, config.use_longcite, config.save_file_name)
  
 if __name__ == "__main__":
     main()
