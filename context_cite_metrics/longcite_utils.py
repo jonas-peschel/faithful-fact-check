@@ -303,7 +303,8 @@ class LongCiteContextCiter(ContextCiter):
             prompt_ids = torch.tensor([prompt_ids], device=self.model.device)
             eos_token_id = [self.tokenizer.eos_token_id, self.tokenizer.get_command("<|user|>"), 
                             self.tokenizer.get_command("<|observation|>")] 
-            outputs = self.model.generate(prompt_ids, **self.generate_kwargs, eos_token_id=eos_token_id)
+            with torch.inference_mode():
+                outputs = self.model.generate(prompt_ids, **self.generate_kwargs, eos_token_id=eos_token_id)
             outputs_response = outputs.tolist()[0][prompt_ids.shape[1]:-1]  # cut until ending <|user|> tag
             response = self.tokenizer.decode(outputs_response)
             self._cache["output"] = prompt + response
