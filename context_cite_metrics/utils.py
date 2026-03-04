@@ -58,17 +58,11 @@ def split_model_answer(cc: ContextCiter):
 #--- dataset helper methods ---#
 def load_data(dataset_name, n_samples=-1, start_idx=0, seed=0):
 
+    assert(n_samples <= 1_000), "Max. 1,000 samples."
+
     # Dataset 1: CNN DailyMail
     if dataset_name == "cnn_daily_mail":
         dataset = load_dataset("abisee/cnn_dailymail", "3.0.0", split="train")   # TODO: should better use validation split like in ContextCite paper for next runs
-        if n_samples == -1:
-            n_samples = len(dataset)
-        # sample max 1000 samples and take the first n_samples
-        # that way, results from different runs with different n_samples will use the same datapoints in the beginning
-        np.random.seed(seed)
-        idxs = np.random.choice(len(dataset), min(1000, len(dataset)), replace=False)
-        idxs = idxs[start_idx:start_idx+n_samples]
-        dataset_sampled = dataset.select(idxs)
 
     # Dataset 2: DRUID
     if dataset_name == "druid":
@@ -82,26 +76,24 @@ def load_data(dataset_name, n_samples=-1, start_idx=0, seed=0):
         # use only instances where the context is not extremly short (at least 5 sentences), otherwise the LDS score will probably be quite biased
         dataset = dataset.filter(lambda example: len(sent_tokenize(example["evidence"])) >= 5)
 
-        # sample max 1000 samples and take the first n_samples
-        # that way, results from different runs with different n_samples will use the same datapoints in the beginning
-        np.random.seed(seed)
-        idxs = np.random.choice(len(dataset), min(1000, len(dataset)), replace=False)
-        idxs = idxs[start_idx:start_idx+n_samples]
-        dataset_sampled = dataset.select(idxs)
-
     # Dataset 3: AVeriTeC
     if dataset_name == "averitec":
         dataset = load_dataset("jonaspeschel/AVeriTeC-with-scraped-gold-evidence", split="train")
-        if n_samples == -1:
-            n_samples = len(dataset)
 
-        # sample max 1000 samples and take the first n_samples
-        # that way, results from different runs with different n_samples will use the same datapoints in the beginning
-        np.random.seed(seed)
-        idxs = np.random.choice(len(dataset), min(1000, len(dataset)), replace=False)
-        idxs = idxs[start_idx:start_idx+n_samples]
-        dataset_sampled = dataset.select(idxs)
-    
+    # Dataset 4: MultiFieldQA-en
+    if dataset_name == "multifield_qa":
+        dataset = load_dataset("jonaspeschel/MultiFieldQA-en-capped-context", split="train")
+        
+    if n_samples == -1:
+        n_samples = len(dataset)
+
+    # sample max 1000 samples and take the first n_samples
+    # that way, results from different runs with different n_samples will use the same datapoints in the beginning
+    np.random.seed(seed)
+    idxs = np.random.choice(len(dataset), min(1000, len(dataset)), replace=False)
+    idxs = idxs[start_idx:start_idx+n_samples]
+    dataset_sampled = dataset.select(idxs)
+   
     return dataset_sampled
 
 def load_datapoint(datapoint, dataset_name, use_longcite):
@@ -133,6 +125,11 @@ def load_datapoint(datapoint, dataset_name, use_longcite):
         query += " Write a paragraph that justifies your decision and the reasons why you decided to classify the claim in the way that you did."
         query += f"\n\nClaim: {datapoint["claim"]}"
 
+    # Dataset 4: MultiFieldQA-en
+    if dataset_name == "multifield_qa":
+        context = datapoint["context"]
+        query = datapoint["query"]
+
     return context, query
 
 def load_cc_prompt_template(dataset_name):
@@ -148,6 +145,10 @@ def load_cc_prompt_template(dataset_name):
     # Dataset 3: AVeriTeC
     if dataset_name == "averitec":
         return "Query: {query}\n\nEvidence: {context}"
+    
+    # Dataset 4: MultiFieldQA-en
+    if dataset_name == "multifield_qa":
+        return "Context: {context}\n\nQuery: {query}"
 
 #--- dataset helper methods end ---#
 

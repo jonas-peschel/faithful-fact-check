@@ -25,7 +25,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Calculate top-k log-prob drop (k=1,3,5) and linear datamodeling score for different attribution methods.") 
     parser.add_argument("--attr_methods", type=str, nargs="+", choices=["context_cite_32", "context_cite_64", "context_cite_128", "context_cite_256", "semantic_similarity", "leave_one_out", "nli_post_hoc_naive", "nli_post_hoc_sliding_window_3", "nli_post_hoc_sliding_window_5", "nli_post_hoc_greedy_sampling", "llm_post_hoc", "longcite_llm_direct"], default=None, help="Which answer attribution methods to calculate the metrics for.")
     parser.add_argument("--metrics", type=str, nargs="+", choices=["log_prob_drop", "LDS"], default=["log_prob_drop", "LDS"], help="Which metric(s) to compute.")
-    parser.add_argument("--dataset", type=str, choices=["cnn_daily_mail", "druid", "averitec"], required=True, help="Which dataset to use.")
+    parser.add_argument("--dataset", type=str, choices=["cnn_daily_mail", "druid", "averitec", "multifield_qa"], required=True, help="Which dataset to use.")
     parser.add_argument("--model_name", type=str, choices=["meta-llama/Llama-3.1-8B-Instruct", "THUDM/LongCite-llama3.1-8b"], default="THUDM/LongCite-llama3.1-8b", help="Huggingface name of model to use.")
     parser.add_argument("--use_longcite", action="store_true", help="Whether to use the ContextCiter class modified for use with LongCite model and tokenizer and whether to calculate top-k log-prob drop with k = #citations from LongCite model.")
     parser.add_argument("--results_path", type=str, default="Results/results.json", help="Path to the file where attribution scores and experiment results (metrics) are stored.")
