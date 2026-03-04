@@ -56,14 +56,13 @@ def split_model_answer(cc: ContextCiter):
         return sentences, spans
 
 #--- dataset helper methods ---#
-def load_data(dataset_name, n_samples, start_idx, seed=0):
-
-    assert n_samples <= 1000, "Max. 1000 samples"
+def load_data(dataset_name, n_samples=None, start_idx=0, seed=0):
 
     # Dataset 1: CNN DailyMail
     if dataset_name == "cnn_daily_mail":
         dataset = load_dataset("abisee/cnn_dailymail", "3.0.0", split="train")   # TODO: should better use validation split like in ContextCite paper for next runs
-
+        if n_samples is None:
+            n_samples = len(dataset)
         # sample max 1000 samples and take the first n_samples
         # that way, results from different runs with different n_samples will use the same datapoints in the beginning
         np.random.seed(seed)
@@ -74,6 +73,8 @@ def load_data(dataset_name, n_samples, start_idx, seed=0):
     # Dataset 2: DRUID
     if dataset_name == "druid":
         dataset = load_dataset("copenlu/druid", "DRUID", split="train")  # there is only a train split for this dataset
+        if n_samples is None:
+            n_samples = len(dataset)
 
         # for calculating ContextCite metrics only use examples where the evidence is sufficient and where verdict is True or False
         dataset = dataset.filter(lambda example: (example["evidence_stance"] == "supports" or example["evidence_stance"] == "refutes") and (example["factcheck_verdict"] == "False" or example["factcheck_verdict"] == "True"))
@@ -91,7 +92,9 @@ def load_data(dataset_name, n_samples, start_idx, seed=0):
     # Dataset 3: AVeriTeC
     if dataset_name == "averitec":
         dataset = load_dataset("jonaspeschel/AVeriTeC-with-scraped-gold-evidence", split="train")
-
+        if n_samples is None:
+            n_samples = len(dataset)
+            
         # sample max 1000 samples and take the first n_samples
         # that way, results from different runs with different n_samples will use the same datapoints in the beginning
         np.random.seed(seed)
