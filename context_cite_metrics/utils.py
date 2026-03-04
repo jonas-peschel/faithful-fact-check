@@ -4,6 +4,7 @@ import numpy as np
 import torch
 from copy import copy
 from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
+from transformers.utils import is_flash_attn_2_available
 from context_cite import ContextCiter 
 from longcite_utils import LongCiteContextCiter
 import nltk
@@ -160,8 +161,16 @@ def load_model(model_name, is_quantize):
     tokenizer.padding_side = "left" # set padding side to left for batch inference with ContextCite
     tokenizer.pad_token_id = tokenizer.eos_token_id
     model = AutoModelForCausalLM.from_pretrained(model_name, device_map="auto", torch_dtype=torch.bfloat16, 
-                                                 quantization_config=quantization_config, trust_remote_code=True) 
+                                                 attn_implementation="flash_attention_2", quantization_config=quantization_config, 
+                                                 trust_remote_code=True) 
     device = model.device
+
+    # check if flash attention is used
+    print("\n\n##### Flash Attention #####")
+    print(f"Is available: {is_flash_attn_2_available()}")
+    print(f"Model attention implementation: {model.config._attn_implementation}")
+    print(f"Attention class: {type(model.model.layers[0].self_attn)}")
+    print("##### Flash Attention #####\n\n")
 
     return model, tokenizer, device
 
