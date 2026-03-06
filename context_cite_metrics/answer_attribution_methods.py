@@ -629,7 +629,7 @@ def main(config=None):
         model_name = "MoritzLaurer/DeBERTa-v3-large-mnli-fever-anli-ling-wanli"
         device = "cuda" if torch.cuda.is_available() else "cpu"
         nli_tokenizer = AutoTokenizer.from_pretrained(model_name)
-        nli_model = AutoModelForSequenceClassification.from_pretrained(model_name).to("cpu")
+        nli_model = AutoModelForSequenceClassification.from_pretrained(model_name).to(device)
 
     PROMPT_TEMPLATE = LONGCITE_PROMPT_TEMPLATE if config.use_longcite else load_cc_prompt_template(config.dataset)  # LongCite prompt template is not actually used
     GENERATE_KWARGS = LONGCITE_GENERATE_KWARGS if config.use_longcite else CC_GENERATE_KWARGS
@@ -709,8 +709,6 @@ def main(config=None):
                 data_point_results = compute_attributions_llm_post_hoc(cc, model, tokenizer, data_point_results)
 
             #--- NLI-based attribution methods ---#
-            if use_nli:
-                nli_model = nli_model.to(device)  # load from cpu to gpu
             if "nli_post_hoc_naive" in config.attr_methods:
                 data_point_results = compute_attributions_nli_post_hoc_naive(cc, nli_tokenizer, nli_model, data_point_results)
 
@@ -719,8 +717,6 @@ def main(config=None):
 
             if "nli_post_hoc_greedy_sampling" in config.attr_methods:
                 data_point_results = compute_attributions_nli_post_hoc_greedy_sampling(cc, nli_tokenizer, nli_model, data_point_results)
-            if use_nli:
-                nli_model = nli_model.to("cpu")  # move nli model back to cpu again
 
         except KeyboardInterrupt:
             print("\nKeyboard interrupt! Saving data...")
