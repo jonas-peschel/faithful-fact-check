@@ -81,7 +81,7 @@ def load_data(dataset_name, n_samples=-1, start_idx=0, seed=0):
         dataset = load_dataset("jonaspeschel/AVeriTeC-with-scraped-gold-evidence", split="train")
 
     # Dataset 4: MultiFieldQA-en
-    if dataset_name == "multifield_qa":
+    if dataset_name == "multifieldqa_en":
         dataset = load_dataset("jonaspeschel/MultiFieldQA-en-capped-context", split="train")
         
     if n_samples == -1:
@@ -126,7 +126,7 @@ def load_datapoint(datapoint, dataset_name, use_longcite):
         query += f"\n\nClaim: {datapoint["claim"]}"
 
     # Dataset 4: MultiFieldQA-en
-    if dataset_name == "multifield_qa":
+    if dataset_name == "multifieldqa_en":
         context = datapoint["context"]
         query = datapoint["query"]
 
@@ -147,7 +147,7 @@ def load_cc_prompt_template(dataset_name):
         return "Query: {query}\n\nEvidence: {context}"
     
     # Dataset 4: MultiFieldQA-en
-    if dataset_name == "multifield_qa":
+    if dataset_name == "multifieldqa_en":
         return "Context: {context}\n\nQuery: {query}"
 
 #--- dataset helper methods end ---#
