@@ -247,14 +247,7 @@ LONGCITE_GENERATE_KWARGS = {
     "top_p": 0.7,
 }
 
-LONGCITE_PROMPT_TEMPLATE = """Please answer the user's question based on the following document. When a sentence S in your response uses information from some chunks in the document (i.e., <C{s1}>-<C_{e1}>, <C{s2}>-<C{e2}>, ...), please append these chunk numbers to S in the format "<statement>{S}<cite>[{s1}-{e1}][{s2}-{e2}]...</cite></statement>". You must answer in the same language as the user's question.
-
-[Document Start]
-{context}
-[Document End]
-
-{query}
-"""
+LONGCITE_PROMPT_TEMPLATE = '''Please answer the user's query based on the given document. When a sentence S in your response uses information from some chunks in the document (i.e., <C{s1}>-<C_{e1}>, <C{s2}>-<C{e2}>, ...), please append these chunk numbers to S in the format "<statement>{S}<cite>[{s1}-{e1}][{s2}-{e2}]...</cite></statement>". You must answer in the same language as the user's query.\n\n[Document Start]\n{context}\n[Document End]\n\n[Query]\n{query}\n\n[Remind]\nPlease answer the user's query based on the given document. When a sentence S in your response uses information from some chunks in the document (i.e., <C{s1}>-<C_{e1}>, <C{s2}>-<C{e2}>, ...), please append these chunk numbers to S in the format "<statement>{S}<cite>[{s1}-{e1}][{s2}-{e2}]...</cite></statement>". You must answer in the same language as the user's query.\n\n[Answer with citations]'''
 
 class LongCiteContextCiter(ContextCiter):
 
