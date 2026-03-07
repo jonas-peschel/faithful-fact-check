@@ -2,6 +2,7 @@ import argparse
 from utils import load_json, save_json
 import numpy as np
 from scipy import special 
+from tqdm.auto import tqdm
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Convert attribution scores into discrete citations using thresholding and filtering.")
@@ -78,7 +79,7 @@ def get_citations(results_paths, attr_methods):
 
     for results_path in results_paths:
         results = load_json(results_path)
-        for i, data_point_results in enumerate(results["results"]):
+        for i, data_point_results in tqdm(enumerate(results["results"]), total=len(results["results"])):
             for attr_method in attr_methods:
                 attr_scores = data_point_results["methods"][attr_method]["attr_scores"]
 
