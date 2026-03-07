@@ -29,7 +29,7 @@ def parse_args():
     parser.add_argument("--model_name", type=str, choices=["meta-llama/Llama-3.1-8B-Instruct", "THUDM/LongCite-llama3.1-8b"], default="THUDM/LongCite-llama3.1-8b", help="Huggingface name of model to use.")
     parser.add_argument("--use_longcite", action="store_true", help="Whether to use the ContextCiter class modified for use with LongCite model and tokenizer and whether to calculate top-k log-prob drop with k = #citations from LongCite model.")
     parser.add_argument("--results_path", type=str, default="Results/results.json", help="Path to the file where attribution scores and experiment results (metrics) are stored.")
-    parser.add_argument("--n_samples", type=int, default=20, help="For how many data points to compute the metrics.")
+    parser.add_argument("--n_samples", type=int, default=-1, help="For how many data points to compute the metrics.")
     parser.add_argument("--start_idx", type=int, default=0, help="Data starting index.")
     parser.add_argument("--m", type=int, default=128, help="How many random ablation vectors to sample for LDS calculation.")
     parser.add_argument("--cc_batch_size", type=int, default=8, help="Batch size to use in ContextCiter for performing inference using ablated contexts.")
