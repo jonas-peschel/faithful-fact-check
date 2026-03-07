@@ -77,6 +77,12 @@ def format_results(results_paths, attr_method, use_longcite, save_file_name):
                 "answer": data_point.get("answer"),  # reference answer for MultiFieldQA-en, else None
                 "few_shot_scores": None,
             }
+
+            # add claim veracity label for fact-checking datasets
+            if dataset == "averitec":
+                formatted_data_point_result["claim"] = data_point.get("claim")
+                formatted_data_point_result["label"] = data_point.get("label")
+                formatted_data_point_result["pred_label"] = None
         
             statements = []
             answer_statements = data_point_results["answer_statements"]
