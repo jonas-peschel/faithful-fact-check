@@ -102,6 +102,7 @@ def format_results(results_paths, attr_method, use_longcite, save_file_name):
     save_name = f"results_formatted/{model_name.split("/")[-1]}_{attr_method}"
     save_path = f"{save_name}_{save_file_name}.json" if save_file_name else f"{save_name}.json"
     save_json(save_path, formatted_data_point_results)
+    print(f"Saved results to: {save_path}")
 
 def main(config=None):
 

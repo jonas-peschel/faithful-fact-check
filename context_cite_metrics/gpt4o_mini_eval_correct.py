@@ -280,3 +280,4 @@ if __name__ == "__main__":
                 break
         print(result)
         json.dump(opts, open(f"./scores_correct/{save_name}.json", "w"), indent=2, ensure_ascii=False)
+        print(f"Saved results to: {f"./scores_correct/{save_name}.json"}")

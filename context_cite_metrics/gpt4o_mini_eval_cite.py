@@ -373,3 +373,5 @@ if __name__ == "__main__":
 
         print(result)
         json.dump(opts, open(f"./scores_cite/{save_name}.json", "w"), indent=2, ensure_ascii=False)
+        print(f"Saved results to: {f"./scores_cite/{save_name}.json"}")
+

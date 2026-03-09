@@ -70,7 +70,7 @@ def main(config=None):
     # save merged results 
     save_path = "./results_final/" + Path(config.cite_file_path).name 
     save_json(save_path, results)
-
+    print(f"Saved results to: {save_path}")
 
 if __name__ == "__main__":
     main()

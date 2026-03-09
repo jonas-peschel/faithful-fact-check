@@ -120,7 +120,7 @@ def main(config=None):
         data_point_result["pred_label"] = veracity_label
         save_json(config.results_path, results)
         save_json(save_path, results)
-
+        print(f"Saved results to: {save_path}")
 
 if __name__ == "__main__": 
     main()
