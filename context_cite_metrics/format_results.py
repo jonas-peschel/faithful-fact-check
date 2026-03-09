@@ -9,7 +9,7 @@ from longcite_utils import LongCiteContextCiter, LongCiteContextPartitioner, LON
 def parse_args():
     parser = argparse.ArgumentParser(description="Utils script for formatting the ContextCite metrics results (for single model and attribution method but for possibly multiple datasets) for citation & correctness evaluation.")
     parser.add_argument("--results_paths", type=str, default=None, nargs="+", help="Paths to the ContextCite metrics results files.")
-    parser.add_argument("--attr_method", type=str, choices=["context_cite_32", "context_cite_64", "context_cite_128", "context_cite_256", "semantic_similarity", "leave_one_out", "nli_post_hoc_naive", "nli_post_hoc_sliding_window", "nli_post_hoc_greedy_sampling", "llm_post_hoc", "longcite_llm_direct"], required=True, help="Which answer attribution methods to use.")
+    parser.add_argument("--attr_method", type=str, choices=["context_cite_32", "context_cite_64", "context_cite_128", "context_cite_256", "semantic_similarity", "leave_one_out", "nli_post_hoc_naive", "nli_post_hoc_sliding_window_3", "nli_post_hoc_sliding_window_5", "nli_post_hoc_greedy_sampling", "llm_post_hoc", "longcite_llm_direct"], required=True, help="Which answer attribution methods to use.")
     parser.add_argument("--use_longcite", action="store_true", help="Whether to use answer statements and context partioning from LongCite.")
     parser.add_argument("--save_file_name", type=str, default=None, help="Extension to the save file name.")
 
@@ -31,6 +31,43 @@ def merge_citation_spans(citation_idxs):
         if i == len(citation_idxs):
             spans.append(span)
     return spans
+
+def get_citations(res, attr_method, use_longcite):
+    """Use same number of citations as LongCite model generated for
+    LLM-based post-hoc attribution and NLI-based post-hoc greedy sampling method.
+    """
+
+    if attr_method == "llm_post_hoc":
+        llm_citations = res["methods"][attr_method]["citations"]
+        if use_longcite:
+            longcite_citations = res["methods"]["longcite_llm_direct"]["citations"]
+            citations = []
+            for llm_citations_sent, longcite_citations_sent in zip(llm_citations, longcite_citations):
+                k_longcite = len(longcite_citations_sent)
+                if k_longcite == 0:
+                    citations.append([])
+                else:
+                    citations_sent = llm_citations_sent[str(k_longcite)]
+                    if citations_sent:
+                        citations.append(citations_sent)
+                    else:
+                        citations.append([])
+        else:
+            raise Exception("Can't determine how many sources to cite without LongCite reference.")
+    elif attr_method == "nli_post_hoc_greedy_sampling":
+        greedy_sampling_citations = res["methods"][attr_method]["citations"]
+        if use_longcite:
+            longcite_citations = res["methods"]["longcite_llm_direct"]["citations"]
+            citations = []
+            for greedy_sampling_citations_sent, longcite_citations_sent in zip(greedy_sampling_citations, longcite_citations):
+                k_longcite = len(longcite_citations_sent)
+                citations.append(greedy_sampling_citations_sent[:k_longcite])
+        else:
+            raise Exception("Can't determine how many sources to cite without LongCite reference.")
+    else:
+        citations = res["methods"][attr_method]["citations"]
+
+    return citations
 
 def format_results(results_paths, attr_method, use_longcite, save_file_name):
     """Format the results from ContextCite metrics calculations for a single attribution method but potentially for
@@ -86,7 +123,7 @@ def format_results(results_paths, attr_method, use_longcite, save_file_name):
         
             statements = []
             answer_statements = data_point_results["answer_statements"]
-            citations = data_point_results["methods"][attr_method]["citations"]
+            citations = get_citations(data_point_results, attr_method, use_longcite)
             for statement, citation_idxs in zip(answer_statements, citations):
                 citation_texts = []
                 for cite_span in merge_citation_spans(citation_idxs):
