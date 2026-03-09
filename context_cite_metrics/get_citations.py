@@ -3,23 +3,46 @@ from utils import load_json, save_json
 import numpy as np
 from scipy import special 
 from tqdm.auto import tqdm
+import math
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Convert attribution scores into discrete citations using thresholding and filtering.")
     parser.add_argument("--results_paths", type=str, default=None, nargs="+", help="Paths to the ContextCite metrics results files.")
-    parser.add_argument("--attr_methods", type=str, default=None, nargs="+", choices=["context_cite_32", "context_cite_64", "context_cite_128", "context_cite_256"])
+    parser.add_argument("--attr_methods", type=str, default=None, nargs="+", choices=["context_cite_32", "context_cite_64", 
+        "context_cite_128", "context_cite_256", "semantic_similarity", "nli_post_hoc_naive", "nli_post_hoc_sliding_window_3", "nli_post_hoc_sliding_window_5"])
 
     return parser.parse_args() 
 
-def get_citations_context_cite(scores):
+def get_params(attr_method):
+
+    if attr_method in ["context_cite_32", "context_cite_64", "context_cite_128", "context_cite_256"]:
+        params = {
+            "t": 1.5,
+            "p": 0.7, 
+            "k": 4, 
+            "n": math.inf,
+        }
+    elif attr_method == "semantic_similarity":
+        params = {
+            "t": 0.7,
+            "p": 0.7, 
+            "k": 4, 
+            "n": math.inf,
+        }
+    elif attr_method in ["nli_post_hoc_naive", "nli_post_hoc_sliding_window_3", "nli_post_hoc_sliding_window_5"]:
+        params = {
+            "t": 0.75,
+            "p": 0.3, 
+            "k": 2, 
+            "n": 5,
+        }
+
+    return params
+
+def filter_and_thresh_citations(scores, t, p, k, n):
     """Extract citations from ContextCite attribution scores according to the
     method described in SelfCite paper Appendix B.2
     """
-    # hyperparameters
-    t = 1.5 
-    p = 0.7 
-    k = 4
-
     scores = np.array(scores)
     idxs = np.array(range(len(scores)))
 
@@ -36,7 +59,7 @@ def get_citations_context_cite(scores):
         if i == 0:
             span = [idxs[0]]
         else:
-            if idxs[i-1] == idxs[i] - 1:
+            if idxs[i-1] == idxs[i] - 1 and len(span) < n:
                 span.append(idxs[i])
             else:
                 spans.append(span)
@@ -83,11 +106,9 @@ def get_citations(results_paths, attr_methods):
             for attr_method in attr_methods:
                 attr_scores = data_point_results["methods"][attr_method]["attr_scores"]
 
-                # different thresholding and filtering parameters/approaches for different attribution methods
-                if attr_method in ["context_cite_32", "context_cite_64", "context_cite_128", "context_cite_256"]:
-                    citations = [get_citations_context_cite(attr_scores_sent) for attr_scores_sent in attr_scores]
-                else:
-                    pass  # TODO 
+                # different thresholding and filtering parameters for different attribution methods
+                filter_and_thresh_params = get_params(attr_method)
+                citations = [filter_and_thresh_citations(attr_scores_sent, **filter_and_thresh_params) for attr_scores_sent in attr_scores]
 
                 data_point_results["methods"][attr_method]["citations"] = citations
             results["results"][i] = data_point_results
