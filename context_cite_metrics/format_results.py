@@ -130,7 +130,7 @@ def format_results(results_paths, attr_method, use_longcite, save_file_name):
                     mask = np.zeros(len(cc.sources), dtype=bool)
                     mask[cite_span] = True 
                     citation_text = partitioner.get_context(mask)
-                    citation_texts.append({"cite": citation_text}) 
+                    citation_texts.append({"cite": citation_text, "span": (cite_span[0], cite_span[-1])}) 
                 statements.append({"statement": statement, "citation": citation_texts})
             formatted_data_point_result["statements"] = statements
             formatted_data_point_results.append(formatted_data_point_result)
