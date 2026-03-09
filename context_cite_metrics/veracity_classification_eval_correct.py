@@ -31,8 +31,8 @@ def main(config=None):
     results_dict = classification_report(
         y_true,
         y_pred,
-        target_names = LABELS,
-        zero_division = np.nan,
+        target_names=LABELS,
+        zero_division=np.nan,
         output_dict=True,
     )
 
@@ -46,8 +46,8 @@ def main(config=None):
     print(classification_report(
         y_true,
         y_pred,
-        target_names = LABELS,
-        zero_division = np.nan
+        target_names=LABELS,
+        zero_division=np.nan,
     ))
 
 if __name__ == "__main__":
