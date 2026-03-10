@@ -73,8 +73,8 @@ def filter_and_thresh_citations(scores, t, p, k, n):
 
     merged_scores = np.array([np.max(scores[span]) for span in spans])
 
-    # 3. softmax normalization 
-    norm_scores = special.softmax(merged_scores)
+    # 3. softmax normalization + added max normalization before to make softmax less sensitive to the scale of the scores
+    norm_scores = special.softmax(merged_scores / np.max(merged_scores))
 
     # 4. top-p selection 
     order = np.argsort(norm_scores)[::-1]
