@@ -121,19 +121,33 @@ def format_results(results_paths, attr_method, use_longcite, save_file_name):
                 formatted_data_point_result["label"] = data_point.get("label")
                 formatted_data_point_result["pred_label"] = None
         
-            statements = []
             answer_statements = data_point_results["answer_statements"]
             citations = get_citations(data_point_results, attr_method, use_longcite)
-            for statement, citation_idxs in zip(answer_statements, citations):
-                citation_texts = []
-                for cite_span in merge_citation_spans(citation_idxs):
-                    mask = np.zeros(len(cc.sources), dtype=bool)
-                    mask[cite_span] = True 
-                    citation_text = partitioner.get_context(mask)
-                    citation_texts.append({"cite": citation_text, "span": (cite_span[0], cite_span[-1])}) 
-                statements.append({"statement": statement, "citation": citation_texts})
-            formatted_data_point_result["statements"] = statements
-            formatted_data_point_results.append(formatted_data_point_result)
+            citation_scores = data_point_results["methods"][attr_method].get("citation_spans_scores")
+            statements = []
+
+            if citation_scores:
+                for statement, citations_sent, citation_scores_sent in zip(answer_statements, citations, citation_scores):
+                    citation_texts = []
+                    for cite_span, score in zip(merge_citation_spans(citations_sent), citation_scores_sent):
+                        mask = np.zeros(len(cc.sources), dtype=bool)
+                        mask[cite_span] = True 
+                        citation_text = partitioner.get_context(mask)
+                        citation_texts.append({"cite": citation_text, "span": (cite_span[0], cite_span[-1]), "score": score}) 
+                    statements.append({"statement": statement, "citation": citation_texts})
+                formatted_data_point_result["statements"] = statements
+                formatted_data_point_results.append(formatted_data_point_result)
+            else:
+                for statement, citations_sent in zip(answer_statements, citations):
+                    citation_texts = []
+                    for cite_span in merge_citation_spans(citations_sent):
+                        mask = np.zeros(len(cc.sources), dtype=bool)
+                        mask[cite_span] = True 
+                        citation_text = partitioner.get_context(mask)
+                        citation_texts.append({"cite": citation_text, "span": (cite_span[0], cite_span[-1]), "score": None}) 
+                    statements.append({"statement": statement, "citation": citation_texts})
+                formatted_data_point_result["statements"] = statements
+                formatted_data_point_results.append(formatted_data_point_result)
 
     # save formatted data
     save_name = f"results_formatted/{model_name.split("/")[-1]}_{attr_method}"

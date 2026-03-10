@@ -29,7 +29,21 @@ def get_params(attr_method):
             "k": 4, 
             "n": math.inf,
         }
-    elif attr_method in ["nli_post_hoc_naive", "nli_post_hoc_sliding_window_3", "nli_post_hoc_sliding_window_5"]:
+    elif attr_method == "nli_post_hoc_naive":
+        params = {
+            "t": 0.65,
+            "p": 0.3, 
+            "k": 2, 
+            "n": 5,
+        }
+    elif attr_method == "nli_post_hoc_sliding_window_3":
+        params = {
+            "t": 0.75,
+            "p": 0.3, 
+            "k": 2, 
+            "n": 5,
+        }
+    elif attr_method == "nli_post_hoc_sliding_window_5":
         params = {
             "t": 0.75,
             "p": 0.3, 
@@ -49,7 +63,7 @@ def filter_and_thresh_citations(scores, t, p, k, n):
     # 1. filtering
     mask = scores >= t
     if not mask.any():
-        return []
+        return [], []
     idxs = idxs[mask] 
 
     # 2. merging adjacent scores 
@@ -96,7 +110,11 @@ def filter_and_thresh_citations(scores, t, p, k, n):
     citations = []
     for span in selected_spans:
         citations.extend(span.tolist())
-    return citations
+
+    # additionally return corresponding attribution scores (score per span)
+    citation_scores = merged_scores[order][:len(selected_spans)].tolist() 
+
+    return citations, citation_scores
 
 def get_citations(results_paths, attr_methods):
 
@@ -108,9 +126,14 @@ def get_citations(results_paths, attr_methods):
 
                 # different thresholding and filtering parameters for different attribution methods
                 filter_and_thresh_params = get_params(attr_method)
-                citations = [filter_and_thresh_citations(attr_scores_sent, **filter_and_thresh_params) for attr_scores_sent in attr_scores]
+                citations, citation_scores = [], []
+                for attr_scores_sent in attr_scores:
+                    c, cs = filter_and_thresh_citations(attr_scores_sent, **filter_and_thresh_params) 
+                    citations.append(c) 
+                    citation_scores.append(cs)
 
                 data_point_results["methods"][attr_method]["citations"] = citations
+                data_point_results["methods"][attr_method]["citation_spans_scores"] = citation_scores
             results["results"][i] = data_point_results
         save_json(results_path, results)
 
