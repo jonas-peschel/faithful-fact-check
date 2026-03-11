@@ -1,6 +1,6 @@
 import streamlit as st 
 from pathlib import Path 
-from utils import load_json, get_attr_method
+from utils import load_json, get_attr_method, METH2LABEL
 
 #--- citation recall colors ---#
 SUPPORTED_COLOR = "#c8f7c5"
@@ -58,7 +58,7 @@ css_layout = f"""
 }}
 .evidence-container {{
     background-color: {secondary_background_color};  
-    height: calc(100vh - 150px);
+    height: calc(100vh - 100px);
     overflow-y: auto;
     position: sticky;
     top: 0;
@@ -375,6 +375,7 @@ def main():
     cc_metrics_results_all_methods = load_json(cc_metrics_results_path)["results"][idx]
 
     attr_method = get_attr_method(str(eval_metrics_results_path))
+    st.subheader(f"Attribution method: {METH2LABEL[attr_method]}")
     cc_metrics_results = cc_metrics_results_all_methods["methods"][attr_method]
     longcite_cc_metrics_results = cc_metrics_results_all_methods["methods"]["longcite_llm_direct"]  # assuming LongCite is always used
 
