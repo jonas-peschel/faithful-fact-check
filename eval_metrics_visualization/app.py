@@ -1,6 +1,6 @@
 import streamlit as st 
 from pathlib import Path 
-from utils import load_json
+from utils import load_json, get_attr_method
 
 #--- citation recall colors ---#
 SUPPORTED_COLOR = "#c8f7c5"
@@ -25,6 +25,7 @@ background_color = "#FFFFFF"
 secondary_background_color = "#F0F2F6"
 text_color = "#181818"
 secondary_link_color = "#6c757d"
+table_color = "#ffffff"
 
 # CSS for page layout
 css_layout = f"""
@@ -55,7 +56,7 @@ css_layout = f"""
     background-color: {background_color};
     padding: 1.5rem;
 }}
-.st-key-evidence-container {{
+.evidence-container {{
     background-color: {secondary_background_color};  
     height: calc(100vh - 150px);
     overflow-y: auto;
@@ -85,8 +86,15 @@ css_layout = f"""
     margin-top: 10px;
     font-style: italic;
 }}
+.drops-table{{
+    margin: 0 40px 1.5rem 40px;
+}}
+td, th{{
+    padding: 6px 12px;
+    border: 1px solid #ddd;
+    background-color: {table_color};
+}}
 """
-
 
 # CSS for highlighting the source sentence to which the user is linked by clicking on tooltip
 css_highlighting = f"""
@@ -115,8 +123,8 @@ st.html(f"<style>{css_layout}</style>")
 st.html(f"<style>{css_highlighting}</style>")
 #### CSS END #### 
 
-# from https://github.com/THUDM/LongCite/blob/main/demo.py
 def process_text(text):
+    """From https://github.com/THUDM/LongCite/blob/main/demo.py"""
     special_char={
         '&': '&amp;',
         '\'': '&apos;',
@@ -257,26 +265,67 @@ def render_model_answer(results, col_l):
                 {answer_text}
         """, unsafe_allow_html=True)  # why on earth?
 
-def render_evidences(eval_metrics_results, col_r):
+def render_evidences(eval_metrics_results, cc_metrics_results, longcite_cc_metrics_results, attr_method, col_r):
+
+    def build_log_prob_drops_table(drops: dict):
+        headers = "".join(f'<th>{k}</th>' for k in drops.keys())
+        values = "".join(f'<td>{v:.2f}</td>' for v in drops.values())
+
+        return f"""
+            <table style="border-collapse: collapse; margin-top: 1rem; font-size: 0.9rem; width: auto;">
+                <thead>
+                    <tr>
+                        <th>k</th>
+                        {headers}
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td class="section-label">Top-k log-prob drop</td>
+                        {values}
+                    </tr>
+                </tbody>
+            </table>
+        """
 
     with col_r:
         st.markdown(f"""
-                    <div class="evidence-heading">
-                        Evidence snippets:
-                    </div>
+            <div class="evidence-heading">
+                Evidence snippets:
+            </div>
         """, unsafe_allow_html=True) 
 
-    with col_r:
-        container = st.container(key="evidence-container", border=False)
+
+    longcite_citations = longcite_cc_metrics_results["citations"]
+    log_prob_drops_dict = cc_metrics_results["metrics"]["top_k_drop"]
+    statements = eval_metrics_results["statements"]
 
     # build evidence html
     evidence_html = ""
-    for i, sc in enumerate(eval_metrics_results["statements"], start=1):
+    j = 0
+    for i in range(len(statements)):
+        sc = statements[i]
         citation = sc["citation"]
+        longcite_citations_sent = longcite_citations[i]
+        if longcite_citations_sent:  # top-k log-prob drop was only calculated for statements with at least one citation from LongCite model
+            k_longcite = len(longcite_citations_sent)
+            if attr_method == "longcite_llm_direct":
+                drops = {
+                    f"k={k_longcite}": log_prob_drops_dict["top_k_drop_longcite"][j],
+                }
+            else: 
+                drops = {
+                    "k=1": log_prob_drops_dict["top_1_drop"][j],
+                    "k=3": log_prob_drops_dict["top_3_drop"][j],
+                    "k=5": log_prob_drops_dict["top_5_drop"][j],
+                    f"k={k_longcite}": log_prob_drops_dict["top_k_drop_longcite"][j],
+                }
+            j += 1
+
         if citation:
             evidence_html += f"""
                 <div class="statement-header">
-                    Statement {i}:
+                    Statement {i+1}:
                 </div>
             """    
         for c in citation:
@@ -296,20 +345,25 @@ def render_evidences(eval_metrics_results, col_r):
             relevant_color = RELEVANT_SCORE2COLOR[relevant_score]
 
             evidence_html += f"""
-                <div class="evidence-card">
-                    <div class="evidence-title">
-                        <span style='color: {relevant_color};'>{relevant_text}</span>
-                        {score_html}
-                    </div>
-                    <div class="evidence-title">
-                        <span>Evidence snippet {cite_span_str}</span>
-                    </div>
-                    <div class="evidence-content">{cite_text}</div>
+            <div class="evidence-card">
+                <div class="evidence-title">
+                    <span style='color: {relevant_color};'>{relevant_text}</span>
+                    {score_html}
                 </div>
-            """
+                <div class="evidence-title">
+                    <span>Evidence snippet {cite_span_str}</span>
+                </div>
+                <div class="evidence-content">{cite_text}</div>
+            </div>
+        """
 
-    with container:
-        st.markdown(evidence_html, unsafe_allow_html=True)
+        # log-prob drops table
+        if longcite_citations_sent:
+            table_html = build_log_prob_drops_table(drops)
+            evidence_html += f"<div class='drops-table'>{table_html}</div>"
+
+    with col_r:
+        st.html(f"<div class='evidence-container'>{evidence_html}</div>")
             
 def main():
     st.set_page_config(layout="wide")
@@ -318,13 +372,20 @@ def main():
     # get settings
     cc_metrics_results_path, eval_metrics_results_path, idx = render_sidebar()
     eval_metrics_results = load_json(eval_metrics_results_path)[idx]
+    cc_metrics_results_all_methods = load_json(cc_metrics_results_path)["results"][idx]
 
+    attr_method = get_attr_method(str(eval_metrics_results_path))
+    cc_metrics_results = cc_metrics_results_all_methods["methods"][attr_method]
+    longcite_cc_metrics_results = cc_metrics_results_all_methods["methods"]["longcite_llm_direct"]  # assuming LongCite is always used
+
+    # layout
     col_l, col_r = st.columns([1,1])
 
+    # display content
     render_claim(eval_metrics_results, col_l)
     render_verdicts(eval_metrics_results, col_l)
     render_model_answer(eval_metrics_results, col_l)
-    render_evidences(eval_metrics_results, col_r)
+    render_evidences(eval_metrics_results, cc_metrics_results, longcite_cc_metrics_results, attr_method, col_r)
     
 
 
