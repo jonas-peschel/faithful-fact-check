@@ -59,17 +59,17 @@ elif GPT_MODEL == 'deepseek-chat':
 
 #--- prompts ---#
 if "averitec" in datasets:
-    need_citation_prompt_template = """You are an expert in evaluating text quality. You will receive a user's fact-checking query prompting an AI assistant to verify a given claim based on a given source text (due to the length of the source, it is not shown to you), the AI assistant's response based on the source text, and a sentence from the response. Your task is to determine whether this sentence is a factual statement made based on the information from the source text that requires citation, rather than an introductory sentence, transition sentence, or a summary, reasoning, or inference based on the previous response. Note that a sentence which states an overall verdict or judgment about a claim — such as whether it is supported or refuted — without referencing any specific passage or piece of evidence from the source text counts as an introductory or summary sentence and does not require a citation, even if it makes a factual assertion. Only sentences that reference or rely on specific pieces of evidence from the source text require a citation. Ensure that you do not use any other external information during your evaluation. Please first provide your judgment (answer with [[Yes]] or [[No]]), then provide your analysis in the format "Need Citation: [[Yes/No]] Analysis: ...".\n\n{}"""
+    need_citation_prompt_template = """You are an expert in evaluating text quality. You will receive a claim and a user's fact-checking query prompting an AI assistant to verify the given claim based on a given source text (due to the length of the source, it is not shown to you). You will also reveive the AI assistant's response based on the source text, and a sentence from the response. Your task is to determine whether this sentence is a factual statement made based on the information from the source text that requires citation, rather than an introductory sentence, transition sentence, or a summary, reasoning, or inference based on the previous response. Note that a sentence which states an overall verdict or judgment about a claim — such as whether it is supported or refuted — without referencing any specific passage or piece of evidence from the source text counts as an introductory or summary sentence and does not require a citation, even if it makes a factual assertion. Only sentences that reference or rely on specific pieces of evidence from the source text require a citation. Ensure that you do not use any other external information during your evaluation. Please first provide your judgment (answer with [[Yes]] or [[No]]), then provide your analysis in the format "Need Citation: [[Yes/No]] Analysis: ...".\n\n{}"""
 else:
     need_citation_prompt_template = """You are an expert in evaluating text quality. You will receive a user's question regarding their uploaded document (due to the length of the document, it is not shown to you), an AI assistant's response based on the document, and a sentence from the response. Your task is to determine whether this sentence is a factual statement made based on the information in the document that requires citation, rather than an introductory sentence, transition sentence, or a summary, reasoning, or inference based on the previous response. Ensure that you do not use any other external information during your evaluation. Please first provide your judgment (answer with [[Yes]] or [[No]]), then provide your analysis in the format "Need Citation: [[Yes/No]] Analysis: ...".\n\n{}"""
 
 if "averitec" in datasets:
-    support_prompt_template = """You are an expert in evaluating text quality. You will receive a user's fact-checking query prompting an AI assistant to verify a given claim based on a source text, a factual statement from the AI assistant's response based on the source text, and a snippet from the source text (since the source text is too long to display in full). Your task is to carefully assess whether this statement is supported by the snippet. Please use the following scale to generate your rating:\n- [[Fully supported]] - Most information in the statement is supported by or extracted from the snippet.\n- [[Partially supported]] - More than half of the content in the statement is supported by the snippet, but a small portion is either not mentioned or contradicts the snippet. For example, if the statement has two key points and the snippet supports only one of them, it should be considered [Partially supported].\n- [[No support]] - The statement is largely unrelated to the snippet, or most key points in the statement do not align with the content of the snippet.\nEnsure that you do not use any information or knowledge outside of the snippet when evaluating. Please provide the rating first, followed by the analysis, in the format "Rating: [[...]] Analysis: ...". \n\n{}"""
+    support_prompt_template = """You are an expert in evaluating text quality. You will receive a factual statement from an AI assistant's response based on a source text, and a snippet from the source text (since the source text is too long to display in full). Your task is to carefully assess whether this statement is supported by the snippet. Please use the following scale to generate your rating:\n- [[Fully supported]] - Most information in the statement is supported by or extracted from the snippet.\n- [[Partially supported]] - More than half of the content in the statement is supported by the snippet, but a small portion is either not mentioned or contradicts the snippet. For example, if the statement has two key points and the snippet supports only one of them, it should be considered [Partially supported].\n- [[No support]] - The statement is largely unrelated to the snippet, or most key points in the statement do not align with the content of the snippet.\nEnsure that you do not use any information or knowledge outside of the snippet when evaluating. Please provide the rating first, followed by the analysis, in the format "Rating: [[...]] Analysis: ...". \n\n{}"""
 else:
     support_prompt_template = """You are an expert in evaluating text quality. You will receive a user's question about an uploaded document, a factual statement from an AI assistant's response based on that document, and a snippet from the document (since the document is too long to display in full). Your task is to carefully assess whether this statement is supported by the snippet. Please use the following scale to generate your rating:\n- [[Fully supported]] - Most information in the statement is supported by or extracted from the snippet. This applies only to cases where the statement and parts of the snippet are almost identical.\n- [[Partially supported]] - More than half of the content in the statement is supported by the snippet, but a small portion is either not mentioned or contradicts the snippet. For example, if the statement has two key points and the snippet supports only one of them, it should be considered [Partially supported].\n- [[No support]] - The statement is largely unrelated to the snippet, or most key points in the statement do not align with the content of the snippet.\nEnsure that you do not use any information or knowledge outside of the snippet when evaluating. Please provide the rating first, followed by the analysis, in the format "Rating: [[...]] Analysis: ...". \n\n{}"""
 
 if "averitec" in datasets:
-    relevant_prompt_template = """You are an expert in evaluating text quality. You will receive a user's fact-checking query prompting an AI assistant to verify a given claim based on a source text, a factual statement from the AI assistant's response based on the source text, and a snippet from the source text (since the source text is too long to display in full). Your task is to carefully assess whether the snippet contains some key information of the statement. Please use the following grades to generate the rating:\n- [[Relevant]] - Some key points of the statement are supported by the snippet or extracted from it.\n- [[Irrelevant]] - The statement is almost entirely unrelated to the snippet, or all key points of the statement are inconsistent with the snippet content.\nEnsure that you do not use any information or knowledge outside of the snippet when evaluating. Please provide the rating first, followed by the analysis, in the format "Rating: [[...]] Analysis: ...". \n\n{}"""
+    relevant_prompt_template = """You are an expert in evaluating text quality. You will receive a factual statement from an AI assistant's response based on a source text, and a snippet from the source text (since the source text is too long to display in full). Your task is to carefully assess whether the snippet contains some key information of the statement. Please use the following grades to generate the rating:\n- [[Relevant]] - Some key points of the statement are supported by the snippet or extracted from it.\n- [[Irrelevant]] - The statement is almost entirely unrelated to the snippet, or all key points of the statement are inconsistent with the snippet content.\nEnsure that you do not use any information or knowledge outside of the snippet when evaluating. Please provide the rating first, followed by the analysis, in the format "Rating: [[...]] Analysis: ...". \n\n{}"""
 else:
     relevant_prompt_template = """You are an expert in evaluating text quality. You will receive a user's question about an uploaded document, a factual statement from an AI assistant's response based on that document, and a snippet from the document (since the document is too long to display in full). Your task is to carefully assess whether the snippet contains some key information of the statement. Please use the following grades to generate the rating:\n- [[Relevant]] - Some key points of the statement are supported by the snippet or extracted from it.\n- [[Irrelevant]] - The statement is almost entirely unrelated to the snippet, or all key points of the statement are inconsistent with the snippet content.\nEnsure that you do not use any information or knowledge outside of the snippet when evaluating. Please provide the rating first, followed by the analysis, in the format "Rating: [[...]] Analysis: ...". \n\n{}"""
 
@@ -126,8 +126,12 @@ def query_llm(messages, model, temperature=1.0, max_new_tokens=1024, stop=None, 
     except: 
         return None
 
-def cat_qa_and_statement(question, answer, statement):
-    prompt = f"<question>\n{question.strip()}\n</question>\n\n<response>\n{answer.strip()}\n</response>\n\n<sentence>\n{statement.strip()}\n</sentence>"
+def cat_qa_and_statement(question, answer, statement, claim):
+    if "averitec" in datasets:
+        query = question.replace(claim, "").replace("\n\nClaim:", "")
+        prompt = f"<claim>\n{claim.strip()}\n</claim>\n\n<query>\n{query.strip()}\n</query>\n\n<response>\n{answer.strip()}\n</response>\n\n<sentence>\n{statement.strip()}\n</sentence>"
+    else:
+        prompt = f"<question>\n{question.strip()}\n</question>\n\n<response>\n{answer.strip()}\n</response>\n\n<sentence>\n{statement.strip()}\n</sentence>"
     return prompt
 
 def need_citation_to_score(s):
@@ -141,8 +145,8 @@ def need_citation_to_score(s):
     else:
         return None
 
-def need_citation(question, answer, sentence):
-    prompt = need_citation_prompt_template.format(cat_qa_and_statement(question, answer, sentence))
+def need_citation(question, answer, sentence, claim):
+    prompt = need_citation_prompt_template.format(cat_qa_and_statement(question, answer, sentence, claim))
     for t in range(5):
         msg = [{'role': 'user', 'content': prompt}]
         output = query_llm(msg, model=GPT_MODEL, temperature=0 if t == 0 else 1, max_new_tokens=10, stop="Analysis:", return_usage=True)
@@ -161,7 +165,11 @@ def need_citation(question, answer, sentence):
     return score, output, usage
 
 def cat_question_statement_context(question, statement, context):
-    prompt = f"<question>\n{question.strip()}\n</question>\n\n<statement>\n{statement.strip()}\n</statement>\n\n<snippet>\n{context.strip()}\n</snippet>\n\n"
+    # leave out query + claim prompt entirely for AVeriTeC as it confused the models
+    if "averitec" in datasets:
+        prompt = f"<statement>\n{statement.strip()}\n</statement>\n\n<snippet>\n{context.strip()}\n</snippet>\n\n"
+    else:
+        prompt = f"<question>\n{question.strip()}\n</question>\n\n<statement>\n{statement.strip()}\n</statement>\n\n<snippet>\n{context.strip()}\n</snippet>\n\n"
     return prompt
 
 def support_level_to_score(s):
@@ -198,7 +206,7 @@ def is_support(question, statement, context):
             break
     return score, output, usage
     
-def score_recall(question, answer, statements_with_citations):
+def score_recall(question, answer, statements_with_citations, claim):
     scores, usages = [], []
     for js in statements_with_citations:
         statement, citations = js['statement'], js['citation']
@@ -218,7 +226,7 @@ def score_recall(question, answer, statements_with_citations):
             else:
                 scores.append(score)
         else:
-            score, output, usage = need_citation(question, answer, statement)
+            score, output, usage = need_citation(question, answer, statement, claim)
             usages.append(usage)
             js.update({
                 "support_output": output,
@@ -288,6 +296,7 @@ def score_precision(question, answer, statements_with_citations):
 
 def get_citation_score(js, max_statement_num=None):
     question, answer, statements_with_citations = js['query'], js['prediction'], js['statements']
+    claim = js.get('claim')  # add claim for AVeriTec data
     answer = re.sub(r"<cite>.*?</cite>", "", answer, flags=re.DOTALL)
     answer = answer.replace('<statement>', '').replace('</statement>', '')
     answer = re.sub(r"<\|reserved_special_token_0\|>.*?<\|reserved_special_token_1\|>", " ", answer, flags=re.DOTALL)
@@ -296,7 +305,7 @@ def get_citation_score(js, max_statement_num=None):
         print(f"Too many statments, only evaluate {max_statement_num} of {len(statements_with_citations)} statements.")
         statements_with_citations = statements_with_citations[:max_statement_num]
 
-    recall, _, usages1 = score_recall(question, answer, statements_with_citations)
+    recall, _, usages1 = score_recall(question, answer, statements_with_citations, claim)
     precision, _, usages2 = score_precision(question, answer, statements_with_citations)
     js['citation_recall'] = recall
     js['citation_precision'] = precision
