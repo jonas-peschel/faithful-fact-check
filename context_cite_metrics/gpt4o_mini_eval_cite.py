@@ -22,7 +22,7 @@ parser.add_argument("--pred_paths", type=str, default=None)
 # datasets to evaluate, joined by ,
 parser.add_argument("--datasets", type=str, default=None)
 # use mini model as compared to full model used in LongCite & SelfCite
-parser.add_argument("--gpt_model", type=str, choices=['gpt-4o-mini', 'gpt-4o'], default='gpt-4o-mini')
+parser.add_argument("--gpt_model", type=str, choices=['gpt-4o-mini', 'gpt-4o', 'deepseek-chat'], default='gpt-4o-mini')
 # parallel workers
 parser.add_argument("--pool", type=int, default=4)
 args = parser.parse_args()
@@ -42,14 +42,20 @@ for dataset in datasets:
     
 pool = args.pool
 
-load_dotenv()
-api_key = os.getenv("OPENAI_API_KEY")
-if not api_key:
-    raise ValueError("Please provide openai_key")
-
-api_url = 'https://api.openai.com/v1/chat/completions'
-
 GPT_MODEL = args.gpt_model
+
+load_dotenv()
+if GPT_MODEL in ['gpt-4o-mini', 'gpt-4o']:
+    api_key = os.getenv("OPENAI_API_KEY")
+elif GPT_MODEL == 'deepseek-chat':
+    api_key = os.getenv("DEEPSEEK_API_KEY")
+if not api_key:
+    raise ValueError("Please provide an API key...")
+
+if GPT_MODEL in ['gpt-4o-mini', 'gpt-4o']:
+    api_url = 'https://api.openai.com/v1/chat/completions'
+elif GPT_MODEL == 'deepseek-chat':
+    api_url = 'https://api.deepseek.com/v1/chat/completions'
 
 #--- prompts ---#
 if "averitec" in datasets:
@@ -63,9 +69,9 @@ else:
     support_prompt_template = """You are an expert in evaluating text quality. You will receive a user's question about an uploaded document, a factual statement from an AI assistant's response based on that document, and a snippet from the document (since the document is too long to display in full). Your task is to carefully assess whether this statement is supported by the snippet. Please use the following scale to generate your rating:\n- [[Fully supported]] - Most information in the statement is supported by or extracted from the snippet. This applies only to cases where the statement and parts of the snippet are almost identical.\n- [[Partially supported]] - More than half of the content in the statement is supported by the snippet, but a small portion is either not mentioned or contradicts the snippet. For example, if the statement has two key points and the snippet supports only one of them, it should be considered [Partially supported].\n- [[No support]] - The statement is largely unrelated to the snippet, or most key points in the statement do not align with the content of the snippet.\nEnsure that you do not use any information or knowledge outside of the snippet when evaluating. Please provide the rating first, followed by the analysis, in the format "Rating: [[...]] Analysis: ...". \n\n{}"""
 
 if "averitec" in datasets:
-    relevant_prompt_template = """You are an expert in evaluating text quality. You will receive a user's fact-checking query prompting an AI assistant to verify a given claim based on a source text, a factual statement from the AI assistant's response based on the source text, and a snippet from the source text (since the source text is too long to display in full). Your task is to carefully assess whether the snippet contains some key information of the statement. Please use the following grades to generate the rating:\n- [[Relevant]] - Some key points of the statement are supported by the snippet or extracted from it.\n- [[Unrelevant]] - The statement is almost entirely unrelated to the snippet, or all key points of the statement are inconsistent with the snippet content.\nEnsure that you do not use any information or knowledge outside of the snippet when evaluating. Please provide the rating first, followed by the analysis, in the format "Rating: [[...]] Analysis: ...". \n\n{}"""
+    relevant_prompt_template = """You are an expert in evaluating text quality. You will receive a user's fact-checking query prompting an AI assistant to verify a given claim based on a source text, a factual statement from the AI assistant's response based on the source text, and a snippet from the source text (since the source text is too long to display in full). Your task is to carefully assess whether the snippet contains some key information of the statement. Please use the following grades to generate the rating:\n- [[Relevant]] - Some key points of the statement are supported by the snippet or extracted from it.\n- [[Irrelevant]] - The statement is almost entirely unrelated to the snippet, or all key points of the statement are inconsistent with the snippet content.\nEnsure that you do not use any information or knowledge outside of the snippet when evaluating. Please provide the rating first, followed by the analysis, in the format "Rating: [[...]] Analysis: ...". \n\n{}"""
 else:
-    relevant_prompt_template = """You are an expert in evaluating text quality. You will receive a user's question about an uploaded document, a factual statement from an AI assistant's response based on that document, and a snippet from the document (since the document is too long to display in full). Your task is to carefully assess whether the snippet contains some key information of the statement. Please use the following grades to generate the rating:\n- [[Relevant]] - Some key points of the statement are supported by the snippet or extracted from it.\n- [[Unrelevant]] - The statement is almost entirely unrelated to the snippet, or all key points of the statement are inconsistent with the snippet content.\nEnsure that you do not use any information or knowledge outside of the snippet when evaluating. Please provide the rating first, followed by the analysis, in the format "Rating: [[...]] Analysis: ...". \n\n{}"""
+    relevant_prompt_template = """You are an expert in evaluating text quality. You will receive a user's question about an uploaded document, a factual statement from an AI assistant's response based on that document, and a snippet from the document (since the document is too long to display in full). Your task is to carefully assess whether the snippet contains some key information of the statement. Please use the following grades to generate the rating:\n- [[Relevant]] - Some key points of the statement are supported by the snippet or extracted from it.\n- [[Irrelevant]] - The statement is almost entirely unrelated to the snippet, or all key points of the statement are inconsistent with the snippet content.\nEnsure that you do not use any information or knowledge outside of the snippet when evaluating. Please provide the rating first, followed by the analysis, in the format "Rating: [[...]] Analysis: ...". \n\n{}"""
 
 def query_llm(messages, model, temperature=1.0, max_new_tokens=1024, stop=None, return_usage=False):
     tries = 0
@@ -88,7 +94,7 @@ def query_llm(messages, model, temperature=1.0, max_new_tokens=1024, stop=None, 
                 "temperature": temperature,
                 "max_tokens": max_new_tokens,
                 "stop" if 'claude' not in model else 'stop_sequences': stop,
-            }, headers=headers, timeout=600)
+            }, headers=headers, timeout=(10, 650))
             # print(resp.text)
             # print(resp.status_code)
             if resp.status_code != 200:
@@ -105,7 +111,8 @@ def query_llm(messages, model, temperature=1.0, max_new_tokens=1024, stop=None, 
             elif "triggering" in str(e):
                 return 'Trigger OpenAI\'s content management policy.'
             print("Error Occurs: \"%s\"        Retry ..."%(str(e)))
-            time.sleep(5)
+            wait_time = 5 * (2** (tries-1))
+            time.sleep(wait_time)
     else:
         print("Max tries. Failed.")
         return None
@@ -231,7 +238,7 @@ def relevant_level_to_score(s):
         l = re.findall(r'\[\[([ /a-zA-Z]+)\]\]', s)
         if l:
             l = l[0]
-            if "unrelevant".lower() in l.lower():
+            if "irrelevant".lower() in l.lower():
                 return 0
             else:
                 return 1
