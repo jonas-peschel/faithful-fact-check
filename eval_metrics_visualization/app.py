@@ -132,6 +132,7 @@ def process_text(text):
         '<': '&lt;',
         '>': '&gt;',
         '\n': '<br>',
+        '$': '&#36;',
     }
     for x, y in special_char.items():
         text = text.replace(x, y)
@@ -244,7 +245,7 @@ def render_model_answer(results, col_l):
         
             # apply background color depending on whether the statement is supported or not
             color = SUPPORT_SCORE2COLOR[support_score]
-            answer_text += f"<span style='background-color: {color};'>{statement}</span>"
+            answer_text += f"<span style='background-color: {color};'>{process_text(statement)}</span>"
             answer_text += " "
 
             # apply color to the citation depending on whether it is relevant or not
