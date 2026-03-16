@@ -125,8 +125,8 @@ def format_results(results_paths, attr_method, use_longcite, save_file_name):
             answer_statements = data_point_results["answer_statements"]
             citations = get_citations(data_point_results, attr_method, use_longcite)
             citation_scores = data_point_results["methods"][attr_method].get("citation_spans_scores")
-            statements = []
 
+            statements = []
             if citation_scores:
                 for statement, citations_sent, citation_scores_sent in zip(answer_statements, citations, citation_scores):
                     citation_texts = []
