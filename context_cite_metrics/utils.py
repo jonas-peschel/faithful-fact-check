@@ -231,7 +231,7 @@ METH2LABEL = {
     "context_cite_128": "ContextCite (128 calls)",
     "context_cite_64": "ContextCite (64 calls)",
     "context_cite_32": "ContextCite (32 calls)",
-    "semantic_similarity": "Similarity",
+    "semantic_similarity": "Semantic similarity",
     "leave_one_out": "Leave-one-out",
     "nli_post_hoc_naive": "NLI (window size: 1)",
     "nli_post_hoc_sliding_window_3": "NLI (window size: 3)",
