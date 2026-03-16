@@ -59,7 +59,7 @@ elif GPT_MODEL == 'deepseek-chat':
 
 #--- prompts ---#
 if "averitec" in datasets:
-    need_citation_prompt_template = """You are an expert in evaluating text quality. You will receive a claim and a user's fact-checking query prompting an AI assistant to verify the given claim based on a given source text (due to the length of the source, it is not shown to you). You will also reveive the AI assistant's response based on the source text, and a sentence from the response. Your task is to determine whether this sentence is a factual statement made based on the information from the source text that requires citation, rather than an introductory sentence, transition sentence, or a summary, reasoning, or inference based on the previous response. Note that a sentence which states an overall verdict or judgment about a claim — such as whether it is supported or refuted — without referencing any specific passage or piece of evidence from the source text counts as an introductory or summary sentence and does not require a citation, even if it makes a factual assertion. Only sentences that reference or rely on specific pieces of evidence from the source text require a citation. Ensure that you do not use any other external information during your evaluation. Please first provide your judgment (answer with [[Yes]] or [[No]]), then provide your analysis in the format "Need Citation: [[Yes/No]] Analysis: ...".\n\n{}"""
+    need_citation_prompt_template = """You are an expert in evaluating text quality. You will receive a claim and a user's fact-checking query prompting an AI assistant to verify the given claim based on a given source text (due to the length of the source, it is not shown to you). You will also reveive the AI assistant's response based on the source text, and a sentence from the response. Your task is to determine whether this sentence is a factual statement made based on the information from the source text that requires citation, rather than an introductory sentence, transition sentence, or a summary, reasoning, or inference based on the previous response. Note that a sentence which states an overall verdict or judgment about a claim — such as whether it is supported or refuted — without referencing any specific passage or piece of evidence from the source text counts as an introductory or summary sentence and does not require a citation, even if it makes a factual assertion. Only sentences that reference or rely on specific pieces of evidence from the source text require a citation. Ensure that you do not use any other external information during your evaluation. Please first provide your analysis, then provide your judgement (answer with [[Yes]] or [[No]]) in the format "Analysis: ... Need Citation: [[Yes/No]]".\n\n{}"""
 else:
     need_citation_prompt_template = """You are an expert in evaluating text quality. You will receive a user's question regarding their uploaded document (due to the length of the document, it is not shown to you), an AI assistant's response based on the document, and a sentence from the response. Your task is to determine whether this sentence is a factual statement made based on the information in the document that requires citation, rather than an introductory sentence, transition sentence, or a summary, reasoning, or inference based on the previous response. Ensure that you do not use any other external information during your evaluation. Please first provide your judgment (answer with [[Yes]] or [[No]]), then provide your analysis in the format "Need Citation: [[Yes/No]] Analysis: ...".\n\n{}"""
 
@@ -135,10 +135,9 @@ def cat_qa_and_statement(question, answer, statement, claim):
     return prompt
 
 def need_citation_to_score(s):
-    l = re.findall(r'\[\[([ /a-zA-Z]+)\]\]', s)
+    l = re.findall(r'Need Citation:\s*\[\[([ /a-zA-Z]+)\]\]', s)
     if l:
-        l = l[0]
-        if "yes".lower() in l.lower():
+        if "yes".lower() in l[-1].lower():
             return 1
         else:
             return 0
@@ -149,7 +148,10 @@ def need_citation(question, answer, sentence, claim):
     prompt = need_citation_prompt_template.format(cat_qa_and_statement(question, answer, sentence, claim))
     for t in range(5):
         msg = [{'role': 'user', 'content': prompt}]
-        output = query_llm(msg, model=GPT_MODEL, temperature=0 if t == 0 else 1, max_new_tokens=10, stop="Analysis:", return_usage=True)
+        if "averitec" in datasets:  # let the model generate analysis first for fact-checking data
+            output = query_llm(msg, model=GPT_MODEL, temperature=0 if t == 0 else 1, max_new_tokens=512, stop=None, return_usage=True)
+        else:
+            output = query_llm(msg, model=GPT_MODEL, temperature=0 if t == 0 else 1, max_new_tokens=10, stop="Analysis:", return_usage=True)
         if isinstance(output, tuple):
             output, usage = output
             score = need_citation_to_score(output)
