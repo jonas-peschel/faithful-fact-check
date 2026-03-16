@@ -120,7 +120,8 @@ def format_results(results_paths, attr_method, use_longcite, save_file_name):
                 formatted_data_point_result["claim"] = data_point.get("claim")
                 formatted_data_point_result["label"] = data_point.get("label")
                 formatted_data_point_result["pred_label"] = None
-        
+                formatted_data_point_result["justification"] = data_point.get("justification")
+
             answer_statements = data_point_results["answer_statements"]
             citations = get_citations(data_point_results, attr_method, use_longcite)
             citation_scores = data_point_results["methods"][attr_method].get("citation_spans_scores")
