@@ -80,6 +80,9 @@ def load_data(dataset_name, n_samples=-1, start_idx=0, seed=0):
     if dataset_name == "averitec":
         dataset = load_dataset("jonaspeschel/AVeriTeC-with-scraped-gold-evidence", split="train")
 
+    if dataset_name == "averitec_short_ans":
+        dataset = load_dataset("jonaspeschel/AVeriTeC-with-scraped-gold-evidence", split="train")
+
     # Dataset 4: MultiFieldQA-en
     if dataset_name == "multifieldqa_en":
         dataset = load_dataset("jonaspeschel/MultiFieldQA-en-capped-context", split="train")
@@ -125,6 +128,13 @@ def load_datapoint(datapoint, dataset_name, use_longcite):
         query += " Write a paragraph that justifies your decision and the reasons why you decided to classify the claim in the way that you did."
         query += f"\n\nClaim: {datapoint["claim"]}"
 
+    if dataset_name == "averitec_short_ans":
+        context = "\n\n".join(datapoint["scraped_evidences"])
+
+        # fact-checking query + claim
+        query = "You are an expert fact-checker. You are provided with a claim and related evidence. Based only on the provided evidence, determine if the given claim is either supported, refuted, has conflicting evidence, or has not enough evidence to determine its veracity. Write a concise justification of 2-3 sentences that states your verdict and the main reason for it, referencing and synthesizing the most relevant pieces of evidence that support your verdict. Where appropriate, mention any important qualifying information. Do not copy sentences from the evidence verbatim. Always paraphrase and synthesize the evidence in your own words."
+        query += f"\n\nClaim: {datapoint["claim"]}"
+
     # Dataset 4: MultiFieldQA-en
     if dataset_name == "multifieldqa_en":
         context = datapoint["context"]
@@ -144,6 +154,9 @@ def load_cc_prompt_template(dataset_name):
 
     # Dataset 3: AVeriTeC
     if dataset_name == "averitec":
+        return "Query: {query}\n\nEvidence: {context}"
+    
+    if dataset_name == "averitec_short_ans":
         return "Query: {query}\n\nEvidence: {context}"
     
     # Dataset 4: MultiFieldQA-en
@@ -244,7 +257,8 @@ METH2LABEL = {
 # prettier label names for the different datasets
 DATASET2LABEL = {
     "cnn_daily_mail": "CNN DailyMail",
-    "averitec": "AVeriTeC (gold evidence)"
+    "averitec": "AVeriTeC (gold evidence)",
+    "averitec_short_ans": "AVeriTeC (gold evidence, short answers)",
 }
 
 def order_results(mean_results, std_results, labels):
