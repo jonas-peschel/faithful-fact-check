@@ -132,7 +132,7 @@ def load_datapoint(datapoint, dataset_name, use_longcite):
         context = "\n\n".join(datapoint["scraped_evidences"])
 
         # fact-checking query + claim
-        query = "You are an expert fact-checker. You are provided with a claim and related evidence. Based only on the provided evidence, determine if the given claim is either supported, refuted, has conflicting evidence, or has not enough evidence to determine its veracity. Write a concise justification of 2-3 sentences that states your verdict and the main reason for it, referencing and synthesizing the most relevant pieces of evidence that support your verdict. Where appropriate, mention any important qualifying information. Do not copy sentences from the evidence verbatim. Always paraphrase and synthesize the evidence in your own words."
+        query = "You are an expert fact-checker. You are provided with a claim and related evidence. Based only on the provided evidence, determine if the given claim is either supported, refuted, has conflicting evidence, or has not enough evidence to determine its veracity. Write a single concise statement of maximally 2-3 sentences that states your verdict and the main reason for it, referencing and synthesizing the most relevant pieces of evidence that support your verdict. Do not copy sentences from the evidence verbatim. Always paraphrase and synthesize the evidence in your own words."
         query += f"\n\nClaim: {datapoint["claim"]}"
 
     # Dataset 4: MultiFieldQA-en
