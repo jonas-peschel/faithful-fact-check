@@ -11,7 +11,7 @@ def parse_args():
 
 def get_label_names(dataset_name):
 
-    if dataset_name == "averitec":
+    if dataset_name == "averitec" or dataset_name == "averitec_short_ans":
         return ['Supported', 'Refuted', 'Conflicting Evidence/Cherrypicking', 'Not Enough Evidence']
 
 def main(config=None):
