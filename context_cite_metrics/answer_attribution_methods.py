@@ -208,12 +208,14 @@ def compute_attributions_leave_one_out(cc: ContextCiter, res: dict):
     return res
 
 def compute_attributions_nli_post_hoc_naive(cc: ContextCiter, nli_tokenizer: Union[PreTrainedTokenizer, PreTrainedTokenizerFast], 
-                                        nli_model: PreTrainedModel, res: dict):
+                                            nli_model: PreTrainedModel, res: dict):
     """
     Compute answer attribution scores using post-hoc attribution with the DeBERTa model for natural language 
     inference for each sentence in the model answer. We take as attribution scores the predicted probability
-    for entailment from the NLI model using the answer sentence to attribute as premise and each of the 
-    context sentences as premise, respectively. This is a naive version because we only consider individual
+    for entailment from the NLI model using the answer sentence to attribute as hypothesis and each of the 
+    context sentences as premise, respectively. The context sentences are split into atomic facts using 
+    deepseek-chat, and the entailment probabilities are max-aggregated across atomic facts to get the attribution
+    scores for the complete answer sentence. This is a naive version because we only consider individual
     source sentences, disregarding that they might need context from adjacent sentences to be understandable.
     """
 
@@ -231,18 +233,26 @@ def compute_attributions_nli_post_hoc_naive(cc: ContextCiter, nli_tokenizer: Uni
             return self.answer_sent, self.context_sents[idx]
 
 
-    answer_statements = res["answer_statements"]
+    atomic_facts = res["decomposed_model_answer"]
     attr_scores = []
-    for sent in answer_statements:
+    for atomic_facts_sent in atomic_facts:
+        if not atomic_facts_sent:
+            attr_scores.append(np.zeros(len(cc.sources)).tolist())
+            continue
 
-        # use torch dataloader for batch processing
-        dataset = NLIDataset(sent, cc.sources)
-        dataloader = DataLoader(dataset, shuffle=False, batch_size=cc.batch_size)
+        attr_scores_sent = []
+        for fact in atomic_facts_sent:
+            # use torch dataloader for batch processing
+            dataset = NLIDataset(fact, cc.sources)
+            dataloader = DataLoader(dataset, shuffle=False, batch_size=cc.batch_size)
 
-        # get entailment probs between answer sentence and all context sentences
-        entailment_probs = get_nli_entailment_probs(nli_tokenizer, nli_model, dataloader)
-
-        attr_scores.append(entailment_probs.tolist())   # save results as list for json compatibility
+            # get entailment probs between atomic fact from answer sentence and all context sentences
+            entailment_probs = get_nli_entailment_probs(nli_tokenizer, nli_model, dataloader)
+            attr_scores_sent.append(entailment_probs)  
+        # max aggregation
+        attr_scores_sent = np.array(attr_scores_sent)
+        attr_scores_sent = np.max(attr_scores_sent, axis=0)
+        attr_scores.append(attr_scores_sent.tolist())
 
     # write to results dict
     res["methods"]["nli_post_hoc_naive"] = {
@@ -257,10 +267,10 @@ def compute_attributions_nli_post_hoc_sliding_window(cc: ContextCiter, sliding_w
     """
     Compute answer attribution scores using post-hoc attribution with the DeBERTa model for natural language 
     inference for each sentence in the model answer. We take as attribution scores the predicted probability
-    for entailment from the NLI model using the answer sentence to attribute as premise and parts of the context
-    as hypothesis. We use a sliding window approach to use a specified number of adjacent sentences as context
-    and compute the attribution scores for the individual sentences by averaging all scores for the windows that
-    the sentence was included in.
+    for entailment from the NLI model using atomic facts from the answer sentence to attribute as hypothesis 
+    and parts of the context as premise. We use a sliding window approach to use a specified number of adjacent 
+    sentences as context and compute the attribution scores for the individual sentences by averaging all scores 
+    for the windows that the sentence was included in.
     """
 
     class NLIDatasetSlidingWindows(utils.data.Dataset):

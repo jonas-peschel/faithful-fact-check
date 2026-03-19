@@ -32,9 +32,9 @@ def get_params(attr_method):
     elif attr_method == "nli_post_hoc_naive":
         params = {
             "t": 0.65,
-            "p": 0.3, 
-            "k": 2, 
-            "n": 5,
+            "p": 0.7, 
+            "k": 4, 
+            "n": math.inf,
         }
     elif attr_method == "nli_post_hoc_sliding_window_3":
         params = {
