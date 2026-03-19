@@ -359,9 +359,8 @@ def compute_attributions_nli_post_hoc_greedy_sampling(cc: ContextCiter, nli_toke
     """
     Generate citations using an NLI-based post-hoc attribution approach with greedy sampling based on the ADiOSAA framework from the paper
     "Post-Hoc Answer Attribution for Grounded and Trustworthy Long Document Comprehension: Task, Insights, and Challenges". This approach aggregates
-    a list of cited source sentences. In each iteration it adds the one source sentence that maximizes entailment probability for the given answer
-    sentence when combined with the already cited sentences. This is a modified version which simply ends after a specified number of iterations k
-    to be able to compute top-k log-probability drop, instead of the original ending criterion. The method gives a list of cited sentences which
+    a list of cited source sentences. In each iteration it adds the one source sentence that maximizes entailment probability for the given atomic 
+    fact from the answer sentence when combined with the already cited sentences. The method gives a list of cited sentences which
     can be used for top-k log-prob drop calculation but not for linear datamodeling score calculation. 
     """
 
@@ -369,7 +368,6 @@ def compute_attributions_nli_post_hoc_greedy_sampling(cc: ContextCiter, nli_toke
         """Combining context sentences for Optimal Selection logic from ADiOSAA-paper"""
 
         def __init__(self, answer_sentence: str, context_sentences: List[str]):
-
             self.answer_sentence = answer_sentence
             self.context_sentences = context_sentences 
 
@@ -383,11 +381,9 @@ def compute_attributions_nli_post_hoc_greedy_sampling(cc: ContextCiter, nli_toke
             self.contexts = context_sentences
 
         def __len__(self):
-
             return len(self.contexts)
 
         def __getitem__(self, idx):
-
             return self.answer_sentence, self.contexts[idx]
 
         def update(self, new_cited_sentence_idx):
@@ -418,14 +414,19 @@ def compute_attributions_nli_post_hoc_greedy_sampling(cc: ContextCiter, nli_toke
 
             self.contexts = contexts
 
+    # hyperparameter for stopping criterion
+    delta_prob = 0.003
 
-    answer_statements = res["answer_statements"]
+    atomic_facts = res["decomposed_model_answer"]
     attr_scores = []
     citations = []
-    for i, sent in enumerate(answer_statements):
-        dataset = NLIDatasetGreedySampling(answer_sentence=sent, context_sentences=cc.sources)
+    for i, atomic_facts_sent in enumerate(atomic_facts):
+        if not atomic_facts_sent:
+            attr_scores.append(np.zeros(len(cc.sources)).tolist())
+            citations.append([])
+            continue
 
-        # number of source sentences to cite; minimum 5 or as many as LongCite cited (if applicable) if it is more than 5
+        # number of source sentences to compute attribution score for; minimum 5 or as many as LongCite cited (if applicable) if it is more than 5
         k = 5
         if res["methods"].get("longcite_llm_direct"):
             n = len(res["methods"]["longcite_llm_direct"]["citations"][i])
@@ -433,26 +434,42 @@ def compute_attributions_nli_post_hoc_greedy_sampling(cc: ContextCiter, nli_toke
                 k = n 
         k = min(k, len(cc.sources))  # avoid bug where we try to cite more sources then there are
 
-        for _ in range(k):
-            dataloader = DataLoader(dataset, shuffle=False, batch_size=cc.batch_size)
-            entailment_probs = get_nli_entailment_probs(nli_tokenizer, nli_model, dataloader)
-            new_cited_sentence_idx = dataset.remaining_sentences_idxs[np.argmax(entailment_probs)]
-            dataset.update(new_cited_sentence_idx)
+        attr_scores_sent = []
+        citations_sent = []
+        for fact in atomic_facts_sent:
+            attr_scores_fact = -1 * np.ones(len(cc.sources))
+            dataset = NLIDatasetGreedySampling(fact, cc.sources)
+            prev_prob = 0.0
+            stop = False
 
-        # set the attribution scores to 1,2,...,k according to their order (first citation gets highest score)
-        attr_scores_sent = list(np.zeros(len(cc.sources)))
-        for score, idx in enumerate(dataset.cited_sentences_idxs[::-1], start=1):
-            attr_scores_sent[idx] = score
+            for _ in range(k):
+                dataloader = DataLoader(dataset, shuffle=False, batch_size=cc.batch_size)
+                entailment_probs = get_nli_entailment_probs(nli_tokenizer, nli_model, dataloader)
+                curr_prob = np.max(entailment_probs)
+                new_cited_sentence_idx = dataset.remaining_sentences_idxs[np.argmax(entailment_probs)]
+                dataset.update(new_cited_sentence_idx)
+                attr_scores_fact[new_cited_sentence_idx] = curr_prob - prev_prob  
 
-        attr_scores.append(attr_scores_sent)
-        citations.append(dataset.cited_sentences_idxs)
+                # check stopping criterion and add citation
+                if not stop:
+                    if curr_prob - prev_prob >= delta_prob:
+                        citations_sent.append(new_cited_sentence_idx)
+                    else: 
+                        stop = True
+
+                prev_prob = curr_prob
+            attr_scores_sent.append(attr_scores_fact)
+        # aggregate attr_scores and citations
+        attr_scores_sent = np.array(attr_scores_sent)
+        attr_scores_sent = np.max(attr_scores_sent, axis=0)
+        attr_scores.append(attr_scores_sent.tolist())
+        citations.append(list(set(citations_sent)))
 
     # write results to results dict
     res["methods"]["nli_post_hoc_greedy_sampling"] = {
         "attr_scores": attr_scores,
         "citations": citations,
     }
-
     return res
 
 def compute_attributions_llm_post_hoc(cc: ContextCiter, model: PreTrainedModel, tokenizer: Union[PreTrainedTokenizer, PreTrainedTokenizerFast], res: dict):
