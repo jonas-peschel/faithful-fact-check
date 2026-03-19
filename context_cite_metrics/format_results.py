@@ -111,6 +111,7 @@ def format_results(results_paths, attr_method, use_longcite, save_file_name):
                 "dataset": dataset,
                 "query": query,
                 "prediction": data_point_results["model_answer"],
+                "decomposed_model_answer": data_point_results["decomposed_model_answer"],
                 "answer": data_point.get("answer"),  # reference answer for MultiFieldQA-en, else None
                 "few_shot_scores": None,
             }
