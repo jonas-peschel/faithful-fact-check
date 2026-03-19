@@ -104,10 +104,10 @@ def main(config=None):
     # Open AI model
     client = OpenAI()
 
-    for data_point_result in tqdm(results):
+    for data_point_results in tqdm(results):
 
-        claim = data_point_result["claim"]
-        model_answer = parse_plain_answer_text(data_point_result["prediction"])
+        claim = data_point_results["claim"]
+        model_answer = parse_plain_answer_text(data_point_results["prediction"])
         LABEL_NAMES = get_label_names(dataset_name)
 
         # classify justification to get predicted veracity label
@@ -117,10 +117,11 @@ def main(config=None):
             time.sleep(5)  # sleep to avoid hitting rate limit
 
         # store veracity_label (each iteration)
-        data_point_result["pred_label"] = veracity_label
+        data_point_results["pred_label"] = veracity_label
         save_json(config.results_path, results)
         save_json(save_path, results)
-        print(f"Saved results to: {save_path}")
+        
+    print(f"Saved results to: {save_path}")
 
 if __name__ == "__main__": 
     main()
