@@ -320,25 +320,32 @@ def compute_attributions_nli_post_hoc_sliding_window(cc: ContextCiter, sliding_w
         return np.array(aggregated_scores)
 
 
-    answer_statements = res["answer_statements"]
-
+    atomic_facts = res["decomposed_model_answer"]
     for window_length in sliding_window_lengths:
         context_windows = get_context_windows(cc.sources, window_length)
 
         attr_scores = []
-        for sent in answer_statements:
+        for atomic_facts_sent in atomic_facts:
+            if not atomic_facts_sent:
+                attr_scores.append(np.zeros(len(cc.sources)).tolist())
+                continue
 
-            # use torch dataloader for batch processing
-            dataset = NLIDatasetSlidingWindows(sent, context_windows)
-            dataloader = DataLoader(dataset, shuffle=False, batch_size=cc.batch_size)
+            attr_scores_sent = []
+            for fact in atomic_facts_sent:
+                # use torch dataloader for batch processing
+                dataset = NLIDatasetSlidingWindows(fact, context_windows)
+                dataloader = DataLoader(dataset, shuffle=False, batch_size=cc.batch_size)
 
-            # get entailment probs between answer sentence and all context windows
-            entailment_probs = get_nli_entailment_probs(nli_tokenizer, nli_model, dataloader)
+                # get entailment probs between answer sentence and all context windows
+                entailment_probs = get_nli_entailment_probs(nli_tokenizer, nli_model, dataloader)
 
-            # aggregate scores
-            attr_scores_sent = aggregate_windows(entailment_probs, window_length)
-
-            attr_scores.append(attr_scores_sent.tolist())   # save results as list for json compatibility
+                # aggregate scores
+                entailment_probs = aggregate_windows(entailment_probs, window_length)
+                attr_scores_sent.append(entailment_probs)
+            # max aggregation
+            attr_scores_sent = np.array(attr_scores_sent)
+            attr_scores_sent = np.max(attr_scores_sent, axis=0)
+            attr_scores.append(attr_scores_sent.tolist())
 
         # write results for each window length to results dict
         res["methods"][f"nli_post_hoc_sliding_window_{window_length}"] = {
