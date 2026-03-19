@@ -119,7 +119,6 @@ def compute_attributions_semantic_similarity(cc: ContextCiter, embedding_model: 
     res["methods"]["semantic_similarity"] = {
         "attr_scores": cos_similarities.tolist(),
     }
-
     return res
 
 def compute_attributions_leave_one_out(cc: ContextCiter, res: dict):
@@ -204,7 +203,6 @@ def compute_attributions_leave_one_out(cc: ContextCiter, res: dict):
     res["methods"]["leave_one_out"] = {
         "attr_scores": attr_scores,
     }
-
     return res
 
 def compute_attributions_nli_post_hoc_naive(cc: ContextCiter, nli_tokenizer: Union[PreTrainedTokenizer, PreTrainedTokenizerFast], 
@@ -258,7 +256,6 @@ def compute_attributions_nli_post_hoc_naive(cc: ContextCiter, nli_tokenizer: Uni
     res["methods"]["nli_post_hoc_naive"] = {
         "attr_scores": attr_scores,
     }
-
     return res
 
 def compute_attributions_nli_post_hoc_sliding_window(cc: ContextCiter, sliding_window_lengths: List[int], 
@@ -351,7 +348,6 @@ def compute_attributions_nli_post_hoc_sliding_window(cc: ContextCiter, sliding_w
         res["methods"][f"nli_post_hoc_sliding_window_{window_length}"] = {
             "attr_scores": attr_scores,
         }
-
     return res
 
 def compute_attributions_nli_post_hoc_greedy_sampling(cc: ContextCiter, nli_tokenizer: Union[PreTrainedTokenizer, PreTrainedTokenizerFast], 
@@ -415,7 +411,7 @@ def compute_attributions_nli_post_hoc_greedy_sampling(cc: ContextCiter, nli_toke
             self.contexts = contexts
 
     # hyperparameter for stopping criterion
-    delta_prob = 0.003
+    delta_prob = 0.05
 
     atomic_facts = res["decomposed_model_answer"]
     attr_scores = []
@@ -603,7 +599,6 @@ def compute_attributions_llm_post_hoc(cc: ContextCiter, model: PreTrainedModel, 
         "citations": citations,
         "model_generations": model_generations,
     }
-
     return res
 
 def compute_attributions_longcite(cc: LongCiteContextCiter, res: dict):
@@ -631,7 +626,6 @@ def compute_attributions_longcite(cc: LongCiteContextCiter, res: dict):
         "attr_scores": attr_scores,
         "citations": citations,
     }
-
     return res
     
 #--- Answer Attribution Methods end ---#
