@@ -541,6 +541,7 @@ def compute_attributions_llm_post_hoc(cc: ContextCiter, model: PreTrainedModel, 
         reg_ex = re.compile(r"\[\s*(\d+)\s*\]")
         sentence_indices = reg_ex.findall(model_answer)
         sentence_indices = [int(idx) for idx in sentence_indices]
+        sentence_indices = list(dict.fromkeys(sentence_indices))  # remove duplicates
         sentence_indices = np.array(sentence_indices, dtype=int)
 
         # validate
@@ -584,7 +585,9 @@ def compute_attributions_llm_post_hoc(cc: ContextCiter, model: PreTrainedModel, 
     for i, atomic_facts_sent in enumerate(atomic_facts):
         if not atomic_facts_sent:
             attr_scores.append(None)
+            citations.append([])
             model_generations.append(None)
+            continue
 
         attr_scores_sent, model_generations_sent = {}, {}  # for LLM post-hoc the attribution scores for one sentence is a dict with entries for k=1,3,5,k_longcite
 
