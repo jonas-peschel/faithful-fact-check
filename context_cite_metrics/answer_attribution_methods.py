@@ -609,7 +609,7 @@ def compute_attributions_llm_post_hoc(cc: ContextCiter, model: PreTrainedModel, 
             if sentence_indices is not None: 
                 sentence_indices = sentence_indices - 1 # sub 1 to get array indices since the source indices start with 1 instead of 0
                 attr_scores_sent_k = np.zeros(len(cc.sources))
-                attr_scores_sent_k[sentence_indices] = 1    # set attr_scores to 1 for all cited sentences, else 0
+                attr_scores_sent_k[sentence_indices] = 1  # set attr_scores to 1 for all cited sentences, else 0
                 attr_scores_sent[f"{k}"] = attr_scores_sent_k.tolist()
             else:
                 attr_scores_sent[f"{k}"] = None  
@@ -623,6 +623,11 @@ def compute_attributions_llm_post_hoc(cc: ContextCiter, model: PreTrainedModel, 
         if sentence_indices is not None: 
             sentence_indices = sentence_indices - 1 # sub 1 to get array indices since the source indices start with 1 instead of 0
             citations_sent = sentence_indices.tolist()
+            k_self = len(citations_sent)
+            if k_self not in ks:
+                attr_scores_sent_k = np.zeros(len(cc.sources))
+                attr_scores_sent_k[sentence_indices] = 1  # set attr_scores to 1 for all cited sentences, else 0
+                attr_scores_sent[f"{k_self}"] = attr_scores_sent_k.tolist()
         else:
             citations_sent = []
  
