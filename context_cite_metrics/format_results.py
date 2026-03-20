@@ -124,8 +124,7 @@ def format_results(results_paths, attr_method, use_longcite, save_file_name):
                 formatted_data_point_result["justification"] = data_point.get("justification")
 
             answer_statements = data_point_results["answer_statements"]
-            ## TODO: remove get_citations, should be just data_point_results["methods"][attr_method]["citations"] for all methods
-            citations = get_citations(data_point_results, attr_method, use_longcite)
+            citations = data_point_results["methods"][attr_method]["citations"]
             citation_scores = data_point_results["methods"][attr_method].get("citation_spans_scores")
 
             statements = []
