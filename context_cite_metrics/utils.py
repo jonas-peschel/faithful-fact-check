@@ -167,7 +167,7 @@ def load_cc_prompt_template(dataset_name):
 
 #--- dataset helper methods end ---#
 
-def load_model(model_name, is_quantize):
+def load_model(model_name, is_quantize, use_model=True):
 
     quantization_config = BitsAndBytesConfig(
         load_in_4bit=True,
@@ -179,10 +179,14 @@ def load_model(model_name, is_quantize):
     tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
     tokenizer.padding_side = "left" # set padding side to left for batch inference with ContextCite
     tokenizer.pad_token_id = tokenizer.eos_token_id
-    model = AutoModelForCausalLM.from_pretrained(model_name, device_map="auto", torch_dtype=torch.bfloat16, 
-                                                 attn_implementation="flash_attention_2", quantization_config=quantization_config, 
-                                                 trust_remote_code=True) 
-    device = model.device
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    if use_model:
+        model = AutoModelForCausalLM.from_pretrained(model_name, device_map=device, torch_dtype=torch.bfloat16, 
+                                                    attn_implementation="flash_attention_2", quantization_config=quantization_config, 
+                                                    trust_remote_code=True) 
+    else:
+        model = None
 
     # check if flash attention is used
     print("\n\n##### Flash Attention #####")

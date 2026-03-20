@@ -411,7 +411,7 @@ def compute_attributions_nli_post_hoc_greedy_sampling(cc: ContextCiter, nli_toke
             self.contexts = contexts
 
     # hyperparameter for stopping criterion
-    delta_prob = 0.05
+    delta_prob = 0.1
 
     atomic_facts = res["decomposed_model_answer"]
     attr_scores = []
@@ -642,7 +642,8 @@ def main(config=None):
     login(token=HF_TOKEN)
 
     # load data and model
-    model, tokenizer, device = load_model(config.model_name, True) 
+    use_model = ("longcite_llm_direct" in config.attr_methods) or ("llm_post_hoc" in config.attr_methods)
+    model, tokenizer, device = load_model(config.model_name, True, use_model=use_model) 
     data = load_data(config.dataset, n_samples=config.n_samples, start_idx=config.start_idx, seed=0)
 
     # load sentence embedding model if semantic similarity is used for attribution
@@ -761,7 +762,7 @@ def main(config=None):
             torch.cuda.empty_cache()
             # load new model
             try:
-                model, _, _ = load_model(config.model_name, True)
+                model, _, _ = load_model(config.model_name, True, use_model=use_model)
             except Exception as reload_error:
                 print(f"Failed to reaload model: {reload_error}\n\nStopping script...")
                 break
