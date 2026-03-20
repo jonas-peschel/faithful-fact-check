@@ -573,7 +573,7 @@ def compute_attributions_llm_post_hoc(cc: ContextCiter, model: PreTrainedModel, 
             sentence_indices = extract_sentence_indices(output_text, tokenizer.eos_token, len(cc.sources), k)
 
             # return results if they are valid
-            if sentence_indices:
+            if sentence_indices is not None:
                 return output_text, sentence_indices
             
         return output_text, None
