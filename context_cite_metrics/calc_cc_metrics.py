@@ -122,7 +122,10 @@ def calc_top_k_log_prob_drop(cc: ContextCiter, res: dict, attr_methods: List[str
 
             # special case: attribution via prompting LLM; then we have different attribution scores for each k (except k=0 where we have no attributions)
             if attr_method == "llm_post_hoc":
-                attr_scores_ks = [attr_scores[f"{k}"] if k != 0 else np.zeros(len(cc.sources)) for k in ks]
+                if attr_scores is not None:
+                    attr_scores_ks = [attr_scores[f"{k}"] if k != 0 else np.zeros(len(cc.sources)) for k in ks]
+                else:
+                    attr_scores_ks = [None]
             else:   # simply repeat attribution scores for how many different ks we have for all other attribution methods since they are identical
                 attr_scores_ks = len(ks) * [attr_scores]
 
