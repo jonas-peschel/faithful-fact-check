@@ -474,51 +474,56 @@ def compute_attributions_llm_post_hoc(cc: ContextCiter, model: PreTrainedModel, 
     k=1,3,5 citations to the top-k most relevant source sentences. The cited source sentences get assigned an 
     attribution score of 1, the others are assigned a score of 0. The scores can only be used to compute the 
     top-k log-probability drop but not the linear datamodeling score since this method does not generate an
-    order of importance for all source sentences.
+    order of importance for all source sentences. Additionally the model is prompted to generate k = #citations 
+    from LongCite model. Also, the model is prompted without any constraints on how many citations to generate.
     """
 
-    def get_prompt_text(answer_sentence, context_sentences, k):
-
-        system_prompt_text = (
-            "You are an expert fact-checker. You are given a statement and sources in the form of a list of source sentences "
-            "numbered with sentence indices. The source sentences contain information which is more or less relevant for the given statement. Your task is "
-            "to identify the exact sentences from the provided list of source sentences that are most relevant for the given statement and that you would "
-            "cite as sources supporting the statement. You must only use the provided context to solve this task and respond only with the sentence indices "
-            "inside square brackets. You must only provide the specified number of sentence indices and end your answer immediately after doing so."
-        )
-
-        user_prompt_template = (
-            "Task: Identify the {k} most relevant sentences from the provided list of source sentences that are relevant for the provided statement. " 
-            "Provide your answer as citations formatted as the sentence indices inside square brackets, e.g. {example_citations}, where {chars} represent " 
-            "the sentence indices.\n\nSource sentences: {context_sentences}\n\nStatement: {answer_sentence}\n\nCitations:"
-        )
-
+    def get_prompt_text(atomic_facts: List[str], context_sentences: List[str], k: int = None):
         # format context sentences with sentence indices
         context_sentences_numbered = []
         for i, sent in enumerate(context_sentences, start=1):
             context_sentences_numbered.append(f"[{i}] {sent}")
-        context_sentences_numbered = " ".join(context_sentences_numbered)
+        context_sentences_numbered = "\n".join(context_sentences_numbered)
 
-        example_citations = "".join([f"[{char}]" for char in "abcde"[:k]])
-        chars = ", ".join("abcde"[:k])
+        # format atomic facts from the answer statement
+        atomic_facts_formatted = "\n".join(atomic_facts)
 
-        user_prompt_text = user_prompt_template.format(k=k, example_citations=example_citations, chars=chars, 
-                                                       context_sentences=context_sentences_numbered, answer_sentence=answer_sentence)
+        # build few-shot examples
+        citations_1 = [5,3,6,8,9]
+        citations_2 = [8, 1, 11, 2, 5]
+        if k:
+            cite_str_1 = "".join(f"[{i}]" for i in citations_1[:k])
+            cite_str_2 = "".join(f"[{i}]" for i in citations_2[:k])
+        else:
+            cite_str_1 = "".join(f"[{i}]" for i in citations_1)
+            cite_str_2 = "".join(f"[{i}]" for i in citations_2)
+        example = f"Example 1:\nSource sentences:\n[1] There are several large and clear signs across all of the car parks we manage which outline the terms and conditions of parking within that establishment, and by choosing to park in the car park (whether they choose to read the signs or not) the motorist is entering into a contract where they agree to abide by those terms and conditions.\n[2] Many motorists believe that parking charges levied by parking companies are illegal and can be ignored without consequence, however this is simply not true.\n[3] If the parking company takes you to court and you lose you'll have to pay the fine, which could go up by then, you might have to pay court costs and these could be expensive. If you win, you won't have to pay the fine and the parking company might have to pay court costs. Pay and make a small claim to get the money back. If you don't want the parking company to take you to court, you should pay your parking ticket. This will stop the fine going up.\n[4] If you wish to challenge a parking fine, follow the instructions on the reverse of the notice and submit a written challenge within 14 days of issue to the South Wales Parking Group using the link below.\n[5] Ignoring official correspondence from reputable companies, such as Gemini Parking Solutions, could lead to an unnecessary and completely avoidable court cases.\n[6] Let the parking company take you to court. You can choose not to pay your parking ticket and the parking company will decide if it's worth taking you to court.\n[7] It's free to appeal and the notice to owner will tell you how.\n[8] Because Gemini Parking Solutions is a reputable company who displays these terms and conditions properly and within the confines of the law, every single parking charge we choose to issue in enforceable in the civil courts.\n[9] The council can then take you to court, your credit rating might be affected and you might also have to pay court costs.\n[10] Check on the notice if you must use the parking company's website or if you can write to them with your reasons for objecting.\n[11] We take a large number of motorists to court each month and, in fact, the judge always finds in our favour on the grounds that we are operating within the confines of the law and our parking charges are issued correctly, so the charge given is fair.\n\nStatements:\nThe evidence shows that ignoring a parking charge notice could lead to an unnecessary and completely avoidable court case.\n\nCitations:{cite_str_1}\n\nExample 2:\nSource sentences:\n[1] There are several large and clear signs across all of the car parks we manage which outline the terms and conditions of parking within that establishment, and by choosing to park in the car park (whether they choose to read the signs or not) the motorist is entering into a contract where they agree to abide by those terms and conditions.\n[2] Many motorists believe that parking charges levied by parking companies are illegal and can be ignored without consequence, however this is simply not true.\n[3] If the parking company takes you to court and you lose you'll have to pay the fine, which could go up by then, you might have to pay court costs and these could be expensive. If you win, you won't have to pay the fine and the parking company might have to pay court costs. Pay and make a small claim to get the money back. If you don't want the parking company to take you to court, you should pay your parking ticket. This will stop the fine going up.\n[4] If you wish to challenge a parking fine, follow the instructions on the reverse of the notice and submit a written challenge within 14 days of issue to the South Wales Parking Group using the link below.\n[5] Ignoring official correspondence from reputable companies, such as Gemini Parking Solutions, could lead to an unnecessary and completely avoidable court cases.\n[6] Let the parking company take you to court. You can choose not to pay your parking ticket and the parking company will decide if it's worth taking you to court.\n[7] It's free to appeal and the notice to owner will tell you how.\n[8] Because Gemini Parking Solutions is a reputable company who displays these terms and conditions properly and within the confines of the law, every single parking charge we choose to issue in enforceable in the civil courts.\n[9] The council can then take you to court, your credit rating might be affected and you might also have to pay court costs.\n[10] Check on the notice if you must use the parking company's website or if you can write to them with your reasons for objecting.\n[11] We take a large number of motorists to court each month and, in fact, the judge always finds in our favour on the grounds that we are operating within the confines of the law and our parking charges are issued correctly, so the charge given is fair.\n\nStatements:\nGemini Parking Solutions is a reputable company operating within the confines of the law.\nGemini Parking Solutions issues parking charges correctly.\nThe parking charges given by Gemini Parking Solutions are fair.\n\nCitations:{cite_str_2}"
 
-        return system_prompt_text, user_prompt_text 
+        if k:
+            system_prompt_template = "You are an expert fact-checker. You are given one or multiple statements which are atomic facts from a sentence, and sources in the form of a list of source sentences numbered with sentence indices. The source sentences contain information which is more or less relevant for the given statements. Your task is to identify the exact sentences from the provided list of source sentences that are most relevant for the given statements and that you would cite as sources supporting the statements. A single source sentence does not have to support all statements. A source sentence can be highly relevant even if it supports only a subset of the statements. You must only use the provided context to solve this task and respond only with the sentence indices in square brackets. You must provide exactly {k} sentence indices for the {k} most relevant source sentences. Respond only with the sentence indices and end your answer immediately after doing so. Respond with no additional text.\n\n{example}"
+            user_prompt_template = "Identify the {k} most relevant sentences from the provided list of source sentences that directly support or provide evidence for the provided statements. Respond only with the sentence indices in square brackets.\n\nSource sentences:\n{context_sentences}\n\nStatements:\n{atomic_facts}\n\nCitations:"
+
+            system_prompt_text = system_prompt_template.format(k=k, example=example)
+            user_prompt_text = user_prompt_template.format(k=k, context_sentences=context_sentences_numbered, atomic_facts=atomic_facts_formatted)
+
+        else:
+            system_prompt_template = "You are an expert fact-checker. You are given one or multiple statements, and sources in the form of a list of source sentences numbered with sentence indices. The source sentences contain information which is more or less relevant for the given statements. Your task is to identify the exact sentences from the provided list of source sentences that are most relevant for the given statements and that you would cite as sources supporting the statements. You must only use the provided context to solve this task and respond only with the sentence indices in square brackets You should provide about 1-5 sentence indices for the 1-5 most relevant source sentences. Do not cite source sentences that do not add any further evidence to support the claims. Stop citing further source sentences when the already cited source sentences provide enough evidence to fully support the statements. Respond only with the sentence indices and end your answer immediately after doing so. Respond with no additional text.\n\n{example}"
+            user_prompt_template = "Identify the most relevant sentences (about 1-5 sentences) from the provided list of source sentences that directly support or provide evidence for the provided statements. Respond only with the sentence indices in square brackets.\n\nSource sentences:\n{context_sentences}\n\nStatements:\n{atomic_facts}\n\nCitations:"
+
+            system_prompt_text = system_prompt_template.format(example=example)
+            user_prompt_text = user_prompt_template.format(context_sentences=context_sentences_numbered, atomic_facts=atomic_facts_formatted)
+
+        return system_prompt_text, user_prompt_text
     
     def get_prompt_ids(system_prompt_text, user_prompt_text, model, tokenizer, device):
-
         # use appropriate chat template depending on the model
         if model.config._name_or_path == "meta-llama/Llama-3.1-8B-Instruct":
-
             messages = [
                 {'role': 'system',
                 'content': system_prompt_text},
                 {'role': 'user',
                 'content': user_prompt_text}
             ]
-
             prompt_ids = tokenizer.apply_chat_template(
                 messages,
                 add_generation_prompt=True,
@@ -528,38 +533,64 @@ def compute_attributions_llm_post_hoc(cc: ContextCiter, model: PreTrainedModel, 
 
         return prompt_ids
     
-    def extract_sentence_indices(model_answer, k, n_sources):
-
+    def extract_sentence_indices(model_answer, eos_token, n_sources, k=None):
+        # ensure the model did not generate endlessly
+        if not eos_token in model_answer:
+            return None
         # extract indices with simple reg_ex
         reg_ex = re.compile(r"\[\s*(\d+)\s*\]")
         sentence_indices = reg_ex.findall(model_answer)
-
         sentence_indices = [int(idx) for idx in sentence_indices]
         sentence_indices = np.array(sentence_indices, dtype=int)
 
         # validate
-        if len(sentence_indices) < k:
-            return None
-        else:
-            sentence_indices = sentence_indices[:k] # if too many citations were generated still count as valid and take first k
-
+        if k:
+            if len(sentence_indices) < k:
+                return None
+            else:
+                sentence_indices = sentence_indices[:k] # if too many citations were generated still count as valid and take first k
         if np.any(sentence_indices <= 0) or np.any(sentence_indices > n_sources):
             return None
-
         return sentence_indices 
+    
+    def prompt_model(model, tokenizer, system_prompt_text, user_prompt_text, generate_kwargs):
+        input_ids = get_prompt_ids(system_prompt_text, user_prompt_text, model, tokenizer, model.device)
+        with torch.inference_mode():
+            output_ids = model.generate(**input_ids, **generate_kwargs)
+        output_text = tokenizer.decode(output_ids.squeeze()[input_ids["input_ids"].shape[1]:])
+        return output_text 
+    
+    def get_model_output(model, tokenizer, system_prompt_text, user_prompt_text, cc, k=None):
+        n_tries = 5
+        for try_i in n_tries:
+            if try_i == 0:
+                generate_kwargs = {"do_sample": False, "max_new_tokens": 50}
+            else:
+                generate_kwargs = {"do_sample": True, "temperature": 1.0, "max_new_tokens": 50}
+
+            output_text = prompt_model(model, tokenizer, system_prompt_text, user_prompt_text, generate_kwargs)
+            # extract the sentence indices for the cited sentences from the model answer & check if they are valid
+            sentence_indices = extract_sentence_indices(output_text, tokenizer.eos_token, len(cc.sources), k)
+
+            # return results if they are valid
+            if sentence_indices:
+                return output_text, sentence_indices
+            
+        return output_text, None
 
 
-    CITATION_GENERATION_KWARGS = {"do_sample": False, "max_new_tokens": 30}
-
-    answer_statements = res["answer_statements"]
+    atomic_facts = res["decomposed_model_answer"]
     attr_scores, citations, model_generations = [], [], []
-    for i, sent in enumerate(answer_statements):
-        attr_scores_sent = {}   # for LLM post-hoc citation the attribution scores for one sentence is a dict with entries for k=1,3,5
-        citations_sent = {}
-        model_generations_sent = {}
+    for i, atomic_facts_sent in enumerate(atomic_facts):
+        if not atomic_facts_sent:
+            attr_scores.append(None)
+            model_generations.append(None)
 
+        attr_scores_sent, model_generations_sent = {}, {}  # for LLM post-hoc the attribution scores for one sentence is a dict with entries for k=1,3,5,k_longcite
+
+        #--- attribution with specified k=1,3,5,k_longcite for top-k log-prob drop calculation ---#
         # how many sources to cite; append number of sources as LongCite cited (if applicable)
-        ks = [1,3,5]   
+        ks = [1,3,5]
         if res["methods"].get("longcite_llm_direct"):
             n = len(res["methods"]["longcite_llm_direct"]["citations"][i])
             if n not in ks and n >= 1:
@@ -568,27 +599,30 @@ def compute_attributions_llm_post_hoc(cc: ContextCiter, model: PreTrainedModel, 
 
         for k in ks:
             # build prompt and perform inference
-            system_prompt_text, user_prompt_text = get_prompt_text(sent, cc.sources, k)
-            input_ids = get_prompt_ids(system_prompt_text, user_prompt_text, model, tokenizer, model.device)
-            with torch.inference_mode():
-                output_ids = model.generate(**input_ids, **CITATION_GENERATION_KWARGS)
-            output_text = tokenizer.decode(output_ids.squeeze()[input_ids["input_ids"].shape[1]:])
-
+            system_prompt_text, user_prompt_text = get_prompt_text(atomic_facts_sent, cc.sources, k)
+            output_text, sentence_indices = get_model_output(model, tokenizer, system_prompt_text, user_prompt_text, cc, k)
             model_generations_sent[f"{k}"] = output_text
-
-            # extract the sentence indices for the cited sentences from the model answer & check if they are valid
-            sentence_indices = extract_sentence_indices(output_text, k, len(cc.sources))
 
             if sentence_indices is not None: 
                 sentence_indices = sentence_indices - 1 # sub 1 to get array indices since the source indices start with 1 instead of 0
                 attr_scores_sent_k = np.zeros(len(cc.sources))
                 attr_scores_sent_k[sentence_indices] = 1    # set attr_scores to 1 for all cited sentences, else 0
                 attr_scores_sent[f"{k}"] = attr_scores_sent_k.tolist()
-                citations_sent[f"{k}"] = sentence_indices.tolist()
             else:
                 attr_scores_sent[f"{k}"] = None  
-                citations_sent[f"{k}"] = None
-   
+
+        #--- generate citations without constraining the amount of cited source sentences ---#
+        # build prompt and perform inference
+        system_prompt_text, user_prompt_text = get_prompt_text(atomic_facts_sent, cc.sources, k=None)
+        output_text, sentence_indices = get_model_output(model, tokenizer, system_prompt_text, user_prompt_text, cc, k=None)
+        model_generations_sent["k_self"] = output_text
+
+        if sentence_indices is not None: 
+            sentence_indices = sentence_indices - 1 # sub 1 to get array indices since the source indices start with 1 instead of 0
+            citations_sent = sentence_indices.tolist()
+        else:
+            citations_sent = []
+ 
         attr_scores.append(attr_scores_sent)
         citations.append(citations_sent)
         model_generations.append(model_generations_sent)
