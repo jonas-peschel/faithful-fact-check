@@ -562,7 +562,7 @@ def compute_attributions_llm_post_hoc(cc: ContextCiter, model: PreTrainedModel, 
     
     def get_model_output(model, tokenizer, system_prompt_text, user_prompt_text, cc, k=None):
         n_tries = 5
-        for try_i in n_tries:
+        for try_i in range(n_tries):
             if try_i == 0:
                 generate_kwargs = {"do_sample": False, "max_new_tokens": 50}
             else:
