@@ -106,10 +106,14 @@ def calc_top_k_log_prob_drop(cc: ContextCiter, res: dict, attr_methods: List[str
             # add k = #citations by LongCite if used
             ks = Ks.copy()
             k_self = len(res["methods"][attr_method]["citations"][sent_idx])
+            if k_self == 0:
+                res["methods"][attr_method]["metrics"]["top_k_drop"]["top_k_drop_citations"].append(0.0)
             if k_self not in ks:
                 ks.append(k_self)
             if use_longcite:
                 k_longcite = len(res["methods"]["longcite_llm_direct"]["citations"][sent_idx])
+                if k_longcite == 0:
+                    res["methods"][attr_method]["metrics"]["top_k_drop"]["top_k_drop_longcite"].append(0.0)
                 if k_longcite not in ks:
                     ks.append(k_longcite)
 
