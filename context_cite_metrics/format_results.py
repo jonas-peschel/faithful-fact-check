@@ -32,43 +32,6 @@ def merge_citation_spans(citation_idxs):
             spans.append(span)
     return spans
 
-def get_citations(res, attr_method, use_longcite):
-    """Use same number of citations as LongCite model generated for
-    LLM-based post-hoc attribution and NLI-based post-hoc greedy sampling method.
-    """
-
-    if attr_method == "llm_post_hoc":
-        llm_citations = res["methods"][attr_method]["citations"]
-        if use_longcite:
-            longcite_citations = res["methods"]["longcite_llm_direct"]["citations"]
-            citations = []
-            for llm_citations_sent, longcite_citations_sent in zip(llm_citations, longcite_citations):
-                k_longcite = len(longcite_citations_sent)
-                if k_longcite == 0:
-                    citations.append([])
-                else:
-                    citations_sent = llm_citations_sent[str(k_longcite)]
-                    if citations_sent:
-                        citations.append(citations_sent)
-                    else:
-                        citations.append([])
-        else:
-            raise Exception("Can't determine how many sources to cite without LongCite reference.")
-    elif attr_method == "nli_post_hoc_greedy_sampling":
-        greedy_sampling_citations = res["methods"][attr_method]["citations"]
-        if use_longcite:
-            longcite_citations = res["methods"]["longcite_llm_direct"]["citations"]
-            citations = []
-            for greedy_sampling_citations_sent, longcite_citations_sent in zip(greedy_sampling_citations, longcite_citations):
-                k_longcite = len(longcite_citations_sent)
-                citations.append(greedy_sampling_citations_sent[:k_longcite])
-        else:
-            raise Exception("Can't determine how many sources to cite without LongCite reference.")
-    else:
-        citations = res["methods"][attr_method]["citations"]
-
-    return citations
-
 def format_results(results_paths, attr_method, use_longcite, save_file_name):
     """Format the results from ContextCite metrics calculations for a single attribution method but potentially for
     multiple different datasets to be suitable for citation quality and correctness evaluation. 
