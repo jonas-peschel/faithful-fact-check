@@ -125,8 +125,9 @@ def calc_top_k_log_prob_drop(cc: ContextCiter, res: dict, attr_methods: List[str
             else:   # simply repeat attribution scores for how many different ks we have for all other attribution methods since they are identical
                 attr_scores_ks = len(ks) * [attr_scores]
 
-            # check if the attribution scores for the statement are valid, i.e. not None and not all zeros
-            if np.any([not np.any(attr_scores) for attr_scores in attr_scores_ks]):
+            # check if the attribution scores for the statement are valid, i.e. not None and not all zeros 
+            # (except for k=0 where it is intentionally a dummy vector of all zeros for llm_post_hoc)
+            if np.any([not np.any(scores) for k, scores in zip(ks, attr_scores_ks) if k != 0]):
                 # skip calculations for the current sentence and write None as result
                 for k in Ks[1:]:
                     res["methods"][attr_method]["metrics"]["top_k_drop"][f"top_{k}_drop"].append(None)
