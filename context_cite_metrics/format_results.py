@@ -74,7 +74,6 @@ def format_results(results_paths, attr_method, use_longcite, save_file_name):
                 "dataset": dataset,
                 "query": query,
                 "prediction": data_point_results["model_answer"],
-                "decomposed_model_answer": data_point_results["decomposed_model_answer"],
                 "answer": data_point.get("answer"),  # reference answer for MultiFieldQA-en, else None
                 "few_shot_scores": None,
             }
@@ -86,6 +85,8 @@ def format_results(results_paths, attr_method, use_longcite, save_file_name):
                 formatted_data_point_result["label"] = data_point.get("label")
                 formatted_data_point_result["pred_label"] = None
                 formatted_data_point_result["justification"] = data_point.get("justification")
+
+            formatted_data_point_result["decomposed_model_answer"] = data_point_results["decomposed_model_answer"]
 
             answer_statements = data_point_results["answer_statements"]
             citations = data_point_results["methods"][attr_method]["citations"]
