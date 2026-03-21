@@ -684,7 +684,9 @@ def main(config=None):
     login(token=HF_TOKEN)
 
     # load data and model
-    use_model = ("longcite_llm_direct" in config.attr_methods) or ("llm_post_hoc" in config.attr_methods)
+    use_model = (("longcite_llm_direct" in config.attr_methods) or ("llm_post_hoc" in config.attr_methods) 
+                 or ("context_cite_32" in config.attr_methods) or ("context_cite_64" in config.attr_methods) 
+                 or ("context_cite_128" in config.attr_methods) or ("context_cite_256" in config.attr_methods))
     model, tokenizer, device = load_model(config.model_name, True, use_model=use_model) 
     data = load_data(config.dataset, n_samples=config.n_samples, start_idx=config.start_idx, seed=0)
 

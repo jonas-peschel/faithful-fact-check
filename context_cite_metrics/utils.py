@@ -183,11 +183,12 @@ def load_model(model_name, is_quantize, use_model=True):
         model = None
 
     # check if flash attention is used
-    print("\n\n##### Flash Attention #####")
-    print(f"Is available: {is_flash_attn_2_available()}")
-    print(f"Model attention implementation: {model.config._attn_implementation}")
-    print(f"Attention class: {type(model.model.layers[0].self_attn)}")
-    print("##### Flash Attention #####\n\n")
+    if use_model:
+        print("\n\n##### Flash Attention #####")
+        print(f"Is available: {is_flash_attn_2_available()}")
+        print(f"Model attention implementation: {model.config._attn_implementation}")
+        print(f"Attention class: {type(model.model.layers[0].self_attn)}")
+        print("##### Flash Attention #####\n\n")
 
     return model, tokenizer, device
 
