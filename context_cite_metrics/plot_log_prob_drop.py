@@ -188,7 +188,7 @@ def main(config=None):
     plots_savepath = Path(config.plots_savepath)
     plots_savepath.parent.mkdir(exist_ok=True, parents=True)
     fig.savefig(plots_savepath, bbox_inches="tight")
-
+    print(f"Saved results to: {plots_savepath}")
 
 if __name__ == "__main__":
     main()
