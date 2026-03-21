@@ -106,14 +106,10 @@ def calc_top_k_log_prob_drop(cc: ContextCiter, res: dict, attr_methods: List[str
             # add k = #citations by LongCite if used
             ks = Ks.copy()
             k_self = len(res["methods"][attr_method]["citations"][sent_idx])
-            if k_self == 0:
-                res["methods"][attr_method]["metrics"]["top_k_drop"]["top_k_drop_citations"].append(0.0)
             if k_self not in ks:
                 ks.append(k_self)
             if use_longcite:
                 k_longcite = len(res["methods"]["longcite_llm_direct"]["citations"][sent_idx])
-                if k_longcite == 0:
-                    res["methods"][attr_method]["metrics"]["top_k_drop"]["top_k_drop_longcite"].append(0.0)
                 if k_longcite not in ks:
                     ks.append(k_longcite)
 
@@ -138,6 +134,12 @@ def calc_top_k_log_prob_drop(cc: ContextCiter, res: dict, attr_methods: List[str
                 if use_longcite:
                     res["methods"][attr_method]["metrics"]["top_k_drop"]["top_k_drop_longcite"].append(None)
                 continue
+
+            # set log-prob drop to 0 for LongCite citations and own citations if no sources where cited
+            if k_self == 0:
+                res["methods"][attr_method]["metrics"]["top_k_drop"]["top_k_drop_citations"].append(0.0)
+            if use_longcite and k_longcite == 0:
+                    res["methods"][attr_method]["metrics"]["top_k_drop"]["top_k_drop_longcite"].append(0.0)
 
             # 1. create masks for k=1,3,5 and create one full mask where no sources are ablated (k=0) for computing the difference 
             masks = []
