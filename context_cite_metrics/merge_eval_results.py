@@ -38,11 +38,29 @@ def count_citation_lengths(results):
         "avg_len_per_statement": total_cite_len/n_statements_with_citation,
         "avg_len_per_span": total_cite_len/n_spans,
         "avg_len_per_statement_all": total_cite_len/n_statements, 
-        "num_citations_per_statement": n_citations/n_statements_with_citation, 
-        "num_citations_per_span": n_citations/n_spans, 
-        "num_citations_per_statement_all": n_citations/n_statements,
+        "avg_num_citations_per_statement": n_citations/n_statements_with_citation, 
+        "avg_num_citations_per_span": n_citations/n_spans, 
+        "avg_num_citations_per_statement_all": n_citations/n_statements,
     }   
     return citation_lengths
+
+def count_answer_lengths(results):
+    """Count lengths of model answers (number of tokens and number of statements)"""
+
+    tokenizer = AutoTokenizer.from_pretrained("THUDM/glm-4-9b-chat", trust_remote_code=True)  # use same tokenizer as in LongCite & SelfCite paper 
+    n_statements = 0 
+    total_ans_length = 0
+
+    for res in tqdm(results):
+        for sc in res["statements"]:
+            n_statements += 1
+            total_ans_length += len(tokenizer.encode(sc["statement"], add_special_tokens=False))
+
+    answer_lengths = {
+        "avg_num_statements": n_statements/len(results),
+        "avg_answer_length": total_ans_length/len(results),
+    }
+    return answer_lengths
 
 def main(config=None):
 
@@ -66,15 +84,17 @@ def main(config=None):
 
         results.append(res)
 
-    # count citation lengths
-    citation_length_scores = count_citation_lengths(results)
+    # count citation lengths and answer lengths
+    citation_lengths = count_citation_lengths(results)
+    answer_lengths = count_answer_lengths(results)
 
     # add overall results
     results.append({
         "eval_metrics": {
             "answer_correctness": correct_scores,
             "citation_quality": cite_scores, 
-            "citation_length": citation_length_scores,
+            "citation_length": citation_lengths,
+            "answer_length": answer_lengths,
         }
     })
 
