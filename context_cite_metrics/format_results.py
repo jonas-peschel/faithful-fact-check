@@ -80,7 +80,8 @@ def format_results(results_paths, attr_method, use_longcite, save_file_name):
             }
 
             # add claim veracity label for fact-checking datasets
-            if dataset == "averitec":
+            if (dataset == "averitec" or dataset == "averitec_short_ans" 
+                or dataset == "averitec_web_evidence" or dataset == "averitec_web_evidence_short_ans"):
                 formatted_data_point_result["claim"] = data_point.get("claim")
                 formatted_data_point_result["label"] = data_point.get("label")
                 formatted_data_point_result["pred_label"] = None

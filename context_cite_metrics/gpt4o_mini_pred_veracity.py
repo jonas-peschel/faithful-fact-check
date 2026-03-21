@@ -25,7 +25,8 @@ def parse_plain_answer_text(answer: str):
 
 def get_veracity_classification_prompts(dataset_name: str, claim: str, justification: str):
 
-    if dataset_name == "averitec" or dataset_name == "averitec_short_ans":
+    if (dataset_name == "averitec" or dataset_name == "averitec_short_ans" 
+        or dataset_name == "averitec_web_evidence"  or dataset_name == "averitec_web_evidence_short_ans"):
         sys_prompt = (
             "You are an expert in classifying fact-checking justification texts. You are provided with a claim and a justification written by a fact-"
             "checker, which evaluates the veracity of the claim, i.e. if the claim is either supported, refuted, has conflicting evidence, or has not "
@@ -39,7 +40,8 @@ def get_veracity_classification_prompts(dataset_name: str, claim: str, justifica
 
 def get_label_names(dataset_name):
 
-    if dataset_name == "averitec" or dataset_name == "averitec_short_ans":
+    if (dataset_name == "averitec" or dataset_name == "averitec_short_ans" 
+        or dataset_name == "averitec_web_evidence"  or dataset_name == "averitec_web_evidence_short_ans"):
         return ['Supported', 'Refuted', 'Conflicting Evidence/Cherrypicking', 'Not Enough Evidence']
 
 class VeracityLabel(BaseModel):

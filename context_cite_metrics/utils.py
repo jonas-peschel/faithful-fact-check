@@ -76,11 +76,8 @@ def load_data(dataset_name, n_samples=-1, start_idx=0, seed=0):
         # use only instances where the context is not extremly short (at least 5 sentences), otherwise the LDS score will probably be quite biased
         dataset = dataset.filter(lambda example: len(sent_tokenize(example["evidence"])) >= 5)
 
-    # Dataset 3: AVeriTeC
-    if dataset_name == "averitec":
-        dataset = load_dataset("jonaspeschel/AVeriTeC-with-scraped-gold-evidence", split="train")
-
-    if dataset_name == "averitec_short_ans":
+    # Dataset 3: AVeriTeC with ground truth evidence
+    if dataset_name == "averitec" or dataset_name == "averitec_short_ans":
         dataset = load_dataset("jonaspeschel/AVeriTeC-with-scraped-gold-evidence", split="train")
 
     # Dataset 4: MultiFieldQA-en
@@ -155,10 +152,7 @@ def load_cc_prompt_template(dataset_name):
         return "Query: {query}\n\nEvidence: {context}"
 
     # Dataset 3: AVeriTeC
-    if dataset_name == "averitec":
-        return "Query: {query}\n\nEvidence: {context}"
-    
-    if dataset_name == "averitec_short_ans":
+    if dataset_name == "averitec" or dataset_name == "averitec_short_ans":
         return "Query: {query}\n\nEvidence: {context}"
     
     # Dataset 4: MultiFieldQA-en
@@ -265,6 +259,8 @@ DATASET2LABEL = {
     "cnn_daily_mail": "CNN DailyMail",
     "averitec": "AVeriTeC (gold evidence)",
     "averitec_short_ans": "AVeriTeC (gold evidence, short answers)",
+    "averitec_web_evidence": "AVeriTeC (web evidence)", 
+    "averitec_web_evidence_short_ans": "AVeriTeC (web evidence, short answers)",
 }
 
 def order_results(mean_results, std_results, labels):
