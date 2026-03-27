@@ -2,7 +2,6 @@ import json
 from datasets import load_dataset
 import numpy as np
 import torch
-from copy import copy
 from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
 from transformers.utils import is_flash_attn_2_available
 from context_cite import ContextCiter 
@@ -264,14 +263,14 @@ DATASET2LABEL = {
     "averitec_web_evidence_short_ans": "AVeriTeC (web evidence, short answers)",
 }
 
-def order_results(mean_results, std_results, labels):
+DESIRED_LABEL_ORDER = ["context_cite_256", "context_cite_128", "context_cite_64", "context_cite_32", "leave_one_out", 
+                        "longcite_llm_direct", "llm_post_hoc", "semantic_similarity", "nli_post_hoc_naive", 
+                        "nli_post_hoc_sliding_window_3", "nli_post_hoc_sliding_window_5", "nli_post_hoc_greedy_sampling"]
 
-    true_order = ["context_cite_256", "context_cite_128", "context_cite_64", "context_cite_32", "longcite_llm_direct", 
-                  "llm_post_hoc", "semantic_similarity", "leave_one_out", "nli_post_hoc_naive", 
-                  "nli_post_hoc_sliding_window_3", "nli_post_hoc_sliding_window_5", "nli_post_hoc_greedy_sampling"]
+def order_results(mean_results, sem_results, labels):
 
-    adapted_true_order = copy(true_order)
-    for method in true_order:
+    adapted_true_order = DESIRED_LABEL_ORDER.copy()
+    for method in DESIRED_LABEL_ORDER:
         if method not in labels:
             adapted_true_order.remove(method)
 
@@ -280,7 +279,16 @@ def order_results(mean_results, std_results, labels):
         idxs.append(labels.index(method))
 
     ordered_mean = mean_results[idxs]
-    ordered_std = std_results[idxs]
+    ordered_sem = sem_results[idxs]
     ordered_labels = [labels[idx] for idx in idxs]
 
-    return ordered_mean, ordered_std, ordered_labels
+    return ordered_mean, ordered_sem, ordered_labels
+
+def sort_legend(ax):
+
+    handles, labels = ax.get_legend_handles_labels()
+    handle_dict = dict(zip(labels, handles)) 
+    sorted_handles = [handle_dict[METH2LABEL[label]] for label in DESIRED_LABEL_ORDER if METH2LABEL[label] in handle_dict]
+    sorted_labels = [METH2LABEL[label] for label in DESIRED_LABEL_ORDER if METH2LABEL[label] in handle_dict]
+
+    return sorted_handles, sorted_labels 

@@ -8,7 +8,7 @@ from pathlib import Path
 import re
 from typing import List, Tuple
 from numpy.typing import NDArray
-from utils import load_json, order_results, METH2COL, METH2LABEL
+from utils import load_json, order_results, sort_legend, METH2COL, METH2LABEL
 
 def parse_args():
 
@@ -20,6 +20,7 @@ def parse_args():
     parser.add_argument("--plot_title", type=str, default="Top-k Log-Probability Drop Metric", help="Title for the plot.")
     parser.add_argument("--ks", type=int, nargs="+", choices=range(1,10), default=None, help="For which k's to plot the results.")
     parser.add_argument("--is_error_bars", action="store_true", help="Whether to plot the error bars with the standard error of the mean.")
+    parser.add_argument("--is_combine", action="store_true", help="Whether to plot combined plot with original ks and k_longcite")
 
     return parser.parse_args()
 
@@ -90,7 +91,7 @@ def count_longcite_citations(results: dict, mask: NDArray[np.bool_]):
     mean, std = np.mean(k_citations), np.std(k_citations)
     return (mean, std)
 
-#--- Plotting Function ---#
+#--- Plotting Functions ---#
 def plot_top_k_log_prob_drop(mean_drops: NDArray[np.floating], sem_drops: NDArray[np.floating], labels: List[str], 
                              ks: List[int] | None, k_longcite_mean_std: Tuple[float,float] | None=None, is_error_bars: bool=False, 
                              title: str="Top-k Log-Probability Drop Metric"):
@@ -151,7 +152,55 @@ def plot_top_k_log_prob_drop(mean_drops: NDArray[np.floating], sem_drops: NDArra
     ax.grid(axis="y", linestyle="--", alpha=0.7)
 
     return fig
-#--- Plotting Function ---#
+
+def plot_top_k_log_prob_drop_combined(mean_drops_list, sem_drops_list, labels_list, ks, k_longcite_mean_std, is_error_bars, title):
+
+    fig, ax = plt.subplots()
+
+    bar_width = 1.0
+    gap_size = 1.0
+    curr_x = 0.0
+    tick_positions = []
+    seen_labels = set() 
+
+    for group_means, group_sems, group_labels in zip(mean_drops_list, sem_drops_list, labels_list):
+        group_start = curr_x
+        group_means, group_sems, group_labels = order_results(group_means, group_sems, group_labels)
+
+        for i, (mean, sem, label) in enumerate(zip(group_means, group_sems, group_labels)):
+            x_pos = group_start + (i+0.5)*bar_width
+            plot_label = METH2LABEL[label] if label not in seen_labels else None
+            seen_labels.add(label)
+
+            ax.bar(x_pos, mean, bar_width, label=plot_label, color=METH2COL[label], edgecolor="white", 
+                linewidth=0.5, yerr=sem if is_error_bars else None, capsize=2, error_kw={"ecolor": "black", "lw": 0.5})
+            
+            curr_x += bar_width 
+
+        group_end = curr_x - bar_width 
+        tick_positions.append((group_start+group_end)/2)
+
+        # add gap 
+        curr_x += gap_size * bar_width 
+            
+    ax.set_title(title)
+    ax.set_ylabel("Log-prob drop")
+
+    k_longcite_mean, k_longcite_std = k_longcite_mean_std
+    xticks_labels = [f"$k={k}$" if k != k_longcite_mean else fr"$k \approx {k_longcite_mean:.1f} \pm {k_longcite_std:.1f}$" for k in ks]
+    ax.set_xticks(tick_positions)
+    ax.set_xticklabels(xticks_labels)
+
+    # sort legend
+    sorted_handles, sorted_labels = sort_legend(ax)
+    ax.legend(sorted_handles, sorted_labels, bbox_to_anchor=(1.04, 0), loc="lower left", borderaxespad=0)  # place legend outside of plot
+
+    ax.set_axisbelow(True)
+    ax.grid(axis="y", linestyle="--", alpha=0.7)
+
+    return fig
+
+#--- Plotting Functions End ---#
 
 def main(config=None):
 
@@ -176,15 +225,55 @@ def main(config=None):
         else:
             warnings.warn(f"Tried to exclude method {excluded_attr_method} but it was never included.")
 
-    # aggregate mean and standard error of the mean over the data
-    mean_drops, sem_drops, mask = aggregate_log_prob_drops(results, config.ks, attr_methods)
+    if not config.is_combine:
+        # aggregate mean and standard error of the mean over the data
+        mean_drops, sem_drops, mask = aggregate_log_prob_drops(results, config.ks, attr_methods)
 
-    k_longcite_mean_std = count_longcite_citations(results, mask) if config.use_longcite else None
+        k_longcite_mean_std = count_longcite_citations(results, mask) if config.use_longcite else None
 
-    # plot and save
-    fig = plot_top_k_log_prob_drop(mean_drops, sem_drops, labels=attr_methods, ks=config.ks, 
-                                   k_longcite_mean_std=k_longcite_mean_std, is_error_bars=config.is_error_bars, title=config.plot_title)
+        # plot
+        fig = plot_top_k_log_prob_drop(mean_drops, sem_drops, labels=attr_methods, ks=config.ks, 
+                                    k_longcite_mean_std=k_longcite_mean_std, is_error_bars=config.is_error_bars, title=config.plot_title)
+        
+    elif config.is_combine:
+        attr_methods_wo_longcite = attr_methods.copy() 
+        attr_methods_wo_longcite.remove("longcite_llm_direct")
 
+        ## aggregate mean and standard error of the mean over the data
+        # 1. for k = 1,3,5 (use all attr_methods including LongCite to drop the same sentences with NaN values)
+        mean_drops, sem_drops, _ = aggregate_log_prob_drops(results, config.ks, attr_methods)
+        # remove longcite results for k=1,3,5 as they are invalid
+        idx_longcite = attr_methods.index("longcite_llm_direct")
+        mask = np.ones(len(attr_methods), dtype=bool)
+        mask[idx_longcite] = False 
+        mean_drops, sem_drops = mean_drops[mask], sem_drops[mask]
+
+        # 2. for k = k_longcite 
+        mean_drops_k_longcite, sem_drops_k_longcite, mask_k_longcite = aggregate_log_prob_drops(results, None, attr_methods)
+
+        k_longcite_mean_std = count_longcite_citations(results, mask_k_longcite)
+        k_longcite_mean, _ = k_longcite_mean_std
+
+        # make list of mean_drops, sem_drops, and labels
+        ks_combined = sorted(config.ks+[k_longcite_mean.item()])
+        mean_drops_list, sem_drops_list, labels_list = [], [], []
+        i = 0
+        for k in ks_combined:
+            if k == k_longcite_mean:
+                mean_drops_list.append(mean_drops_k_longcite.squeeze())
+                sem_drops_list.append(sem_drops_k_longcite.squeeze())
+                labels_list.append(attr_methods)
+            else:
+                mean_drops_list.append(mean_drops[:,i])
+                sem_drops_list.append(sem_drops[:,i])
+                labels_list.append(attr_methods_wo_longcite)
+                i += 1
+
+        # plot
+        fig = plot_top_k_log_prob_drop_combined(mean_drops_list, sem_drops_list, labels_list=labels_list, ks=ks_combined, 
+                                                k_longcite_mean_std=k_longcite_mean_std, is_error_bars=config.is_error_bars, title=config.plot_title)
+
+    # save results
     plots_savepath = Path(config.plots_savepath)
     plots_savepath.parent.mkdir(exist_ok=True, parents=True)
     fig.savefig(plots_savepath, bbox_inches="tight")
