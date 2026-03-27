@@ -140,7 +140,7 @@ def calc_top_k_log_prob_drop(cc: ContextCiter, res: dict, attr_methods: List[str
             if k_self == 0:
                 res["methods"][attr_method]["metrics"]["top_k_drop"]["top_k_drop_citations"].append(0.0)
             if use_longcite and k_longcite == 0:
-                    res["methods"][attr_method]["metrics"]["top_k_drop"]["top_k_drop_longcite"].append(0.0)
+                res["methods"][attr_method]["metrics"]["top_k_drop"]["top_k_drop_longcite"].append(0.0)
 
             # 1. create masks for k=1,3,5 and create one full mask where no sources are ablated (k=0) for computing the difference 
             masks = []
