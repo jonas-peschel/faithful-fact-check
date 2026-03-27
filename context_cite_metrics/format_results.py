@@ -1,8 +1,9 @@
 import argparse
 import numpy as np
+from typing import List 
 from transformers import AutoTokenizer
 from context_cite import ContextCiter
-from context_cite.context_partitioner import SimpleContextPartitioner
+from context_cite.context_partitioner import SimpleContextPartitioner, BaseContextPartitioner
 from utils import load_json, save_json, load_data, load_datapoint, load_cc_prompt_template, CC_GENERATE_KWARGS
 from longcite_utils import LongCiteContextCiter, LongCiteContextPartitioner, LONGCITE_GENERATE_KWARGS, LONGCITE_PROMPT_TEMPLATE
 
@@ -31,6 +32,29 @@ def merge_citation_spans(citation_idxs):
         if i == len(citation_idxs):
             spans.append(span)
     return spans
+
+def get_citation_text(cite_span: List[int], partitioner: BaseContextPartitioner):
+    """Get corresponding citation source text for given citation indices.
+    Get 2 sentences precedent and subsequent to the cited text to display 
+    as additional context.
+    """
+    n = 2  # number of context sentences
+    cite_mask, pre_mask, post_mask = (np.zeros(partitioner.num_sources, dtype=bool), 
+                                      np.zeros(partitioner.num_sources, dtype=bool), 
+                                      np.zeros(partitioner.num_sources, dtype=bool))
+    
+    pre_span = list(range(max(0, cite_span[0]-n), cite_span[0]))
+    post_span = list(range(cite_span[-1]+1, min(partitioner.num_sources-1, cite_span[-1]+1+n)))
+
+    cite_mask[cite_span] = True 
+    pre_mask[pre_span] = True 
+    post_mask[post_span] = True 
+
+    citation_text = partitioner.get_context(cite_mask)
+    pre_text = partitioner.get_context(pre_mask)
+    post_text = partitioner.get_context(post_mask)
+
+    return citation_text, pre_text, post_text
 
 def format_results(results_paths, attr_method, use_longcite, save_file_name):
     """Format the results from ContextCite metrics calculations for a single attribution method but potentially for
@@ -97,10 +121,14 @@ def format_results(results_paths, attr_method, use_longcite, save_file_name):
                 for statement, citations_sent, citation_scores_sent in zip(answer_statements, citations, citation_scores):
                     citation_texts = []
                     for cite_span, score in zip(merge_citation_spans(citations_sent), citation_scores_sent):
-                        mask = np.zeros(len(cc.sources), dtype=bool)
-                        mask[cite_span] = True 
-                        citation_text = partitioner.get_context(mask)
-                        citation_texts.append({"cite": citation_text, "span": (cite_span[0], cite_span[-1]), "score": score}) 
+                        citation_text, pre_context, post_context = get_citation_text(cite_span, partitioner)
+                        citation_texts.append({
+                            "cite": citation_text, 
+                            "span": (cite_span[0], cite_span[-1]), 
+                            "score": score,
+                            "pre_context": pre_context,
+                            "post_context": post_context,
+                        }) 
                     statements.append({"statement": statement, "citation": citation_texts})
                 formatted_data_point_result["statements"] = statements
                 formatted_data_point_results.append(formatted_data_point_result)
@@ -108,10 +136,14 @@ def format_results(results_paths, attr_method, use_longcite, save_file_name):
                 for statement, citations_sent in zip(answer_statements, citations):
                     citation_texts = []
                     for cite_span in merge_citation_spans(citations_sent):
-                        mask = np.zeros(len(cc.sources), dtype=bool)
-                        mask[cite_span] = True 
-                        citation_text = partitioner.get_context(mask)
-                        citation_texts.append({"cite": citation_text, "span": (cite_span[0], cite_span[-1]), "score": None}) 
+                        citation_text, pre_context, post_context = get_citation_text(cite_span, partitioner)
+                        citation_texts.append({
+                            "cite": citation_text, 
+                            "span": (cite_span[0], cite_span[-1]), 
+                            "score": None,
+                            "pre_context": pre_context,
+                            "post_context": post_context,
+                        }) 
                     statements.append({"statement": statement, "citation": citation_texts})
                 formatted_data_point_result["statements"] = statements
                 formatted_data_point_results.append(formatted_data_point_result)
