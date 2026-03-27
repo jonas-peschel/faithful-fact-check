@@ -141,7 +141,7 @@ def process_text(text):
 def render_sidebar():
     app_path = Path(__file__).resolve()
     cc_metrics_results_dir = app_path.parent.parent / "context_cite_metrics/results"
-    eval_metrics_results_dir = app_path.parent.parent / "context_cite_metrics/results_final/AVeriTeC"
+    eval_metrics_results_dir = app_path.parent.parent / "context_cite_metrics/results_final/averitec_short_ans"
 
     with st.sidebar:
         st.subheader("Settings")
@@ -217,6 +217,16 @@ def render_verdicts(results, col_l):
             Ground truth verdict: {gt_label} {EMOTES[idx]}
         </div>
         """, unsafe_allow_html=True)
+
+def render_ground_truth_justification(eval_metrics_results, col_l):
+
+    gt_justification = eval_metrics_results["justification"]
+    with col_l:
+        st.markdown(f"""
+                    <div>
+                        <span class="section-label">Ground truth justification:</span> {gt_justification}
+                    </div>
+        """, unsafe_allow_html=True) 
 
 def render_model_answer(results, col_l):
 
@@ -300,6 +310,7 @@ def render_evidences(eval_metrics_results, cc_metrics_results, longcite_cc_metri
     longcite_citations = longcite_cc_metrics_results["citations"]
     log_prob_drops_dict = cc_metrics_results["metrics"]["top_k_drop"]
     statements = eval_metrics_results["statements"]
+    citations = cc_metrics_results["citations"]
 
     # build evidence html
     evidence_html = ""
@@ -307,21 +318,32 @@ def render_evidences(eval_metrics_results, cc_metrics_results, longcite_cc_metri
     for i in range(len(statements)):
         sc = statements[i]
         citation = sc["citation"]
-        longcite_citations_sent = longcite_citations[i]
-        if longcite_citations_sent:  # top-k log-prob drop was only calculated for statements with at least one citation from LongCite model
-            k_longcite = len(longcite_citations_sent)
-            if attr_method == "longcite_llm_direct":
-                drops = {
-                    f"k={k_longcite}": log_prob_drops_dict["top_k_drop_longcite"][j],
-                }
-            else: 
-                drops = {
-                    "k=1": log_prob_drops_dict["top_1_drop"][j],
-                    "k=3": log_prob_drops_dict["top_3_drop"][j],
-                    "k=5": log_prob_drops_dict["top_5_drop"][j],
-                    f"k={k_longcite}": log_prob_drops_dict["top_k_drop_longcite"][j],
-                }
-            j += 1
+        # longcite_citations_sent = longcite_citations[i]
+        # if longcite_citations_sent:  
+        #     k_longcite = len(longcite_citations_sent)
+
+        # if attr_method == "longcite_llm_direct":
+        #     drops = {
+        #         f"k={k_longcite}": log_prob_drops_dict["top_k_drop_longcite"][j],
+        #     }
+        # else: 
+        #     drops = {
+        #         "k=1": log_prob_drops_dict["top_1_drop"][j],
+        #         "k=3": log_prob_drops_dict["top_3_drop"][j],
+        #         "k=5": log_prob_drops_dict["top_5_drop"][j],
+        #         f"k={k_longcite}": log_prob_drops_dict["top_k_drop_longcite"][j],
+        #     }
+
+
+        k_self = len(citations[j])
+        if log_prob_drops_dict["top_k_drop_citations"][j]:
+            drops = {
+                f"k={k_self}": log_prob_drops_dict["top_k_drop_citations"][j],
+            }
+        else:
+            drops = {}
+        j += 1
+
 
         if citation:
             evidence_html += f"""
@@ -359,7 +381,7 @@ def render_evidences(eval_metrics_results, cc_metrics_results, longcite_cc_metri
         """
 
         # log-prob drops table
-        if longcite_citations_sent:
+        if citation:
             table_html = build_log_prob_drops_table(drops)
             evidence_html += f"<div class='drops-table'>{table_html}</div>"
 
@@ -386,6 +408,7 @@ def main():
     # display content
     render_claim(eval_metrics_results, col_l)
     render_verdicts(eval_metrics_results, col_l)
+    render_ground_truth_justification(eval_metrics_results, col_l)
     render_model_answer(eval_metrics_results, col_l)
     render_evidences(eval_metrics_results, cc_metrics_results, longcite_cc_metrics_results, attr_method, col_r)
     
