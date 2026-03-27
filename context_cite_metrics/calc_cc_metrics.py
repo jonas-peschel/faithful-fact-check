@@ -196,17 +196,17 @@ def calc_linear_datamodeling_score(cc: ContextCiter, res: dict, attr_methods: Li
 
     if "llm_post_hoc" in attr_methods:
         warnings.warn("Can not calculate linear datamodeling score for LLM-post-hoc attribution method. Skipping calculations...")
-        attr_methods = copy(attr_methods)
+        attr_methods = attr_methods.copy()
         attr_methods.remove("llm_post_hoc")
 
     if "nli_post_hoc_greedy_sampling" in attr_methods:
         warnings.warn("Can not calculate linear datamodeling score for NLI-based post-hoc attribution method with greedy sampling. Skipping calculations...")
-        attr_methods = copy(attr_methods)
+        attr_methods = attr_methods.copy()
         attr_methods.remove("nli_post_hoc_greedy_sampling")
 
     if "longcite_llm_direct" in attr_methods:
         warnings.warn("Can not calculate linear datamodeling score for LLM direct attribution. Skipping calculations...")
-        attr_methods = copy(attr_methods)
+        attr_methods = attr_methods.copy()
         attr_methods.remove("longcite_llm_direct")
 
     res = prepare_results_dict(res, attr_methods)

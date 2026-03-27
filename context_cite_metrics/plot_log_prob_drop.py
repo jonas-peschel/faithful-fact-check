@@ -92,7 +92,8 @@ def count_longcite_citations(results: dict, mask: NDArray[np.bool_]):
 
 #--- Plotting Function ---#
 def plot_top_k_log_prob_drop(mean_drops: NDArray[np.floating], sem_drops: NDArray[np.floating], labels: List[str], 
-                             ks: List[int] | None, k_longcite_mean_std: Tuple[float,float] | None=None, is_error_bars: bool=False, title: str="Top-k Log-Probability Drop Metric"):
+                             ks: List[int] | None, k_longcite_mean_std: Tuple[float,float] | None=None, is_error_bars: bool=False, 
+                             title: str="Top-k Log-Probability Drop Metric"):
     """
     Plot bar plot of top-k log-prob drop metric.
 
