@@ -199,7 +199,6 @@ def plot_top_k_log_prob_drop_combined(mean_drops_list, sem_drops_list, labels_li
     ax.grid(axis="y", linestyle="--", alpha=0.7)
 
     return fig
-
 #--- Plotting Functions End ---#
 
 def main(config=None):
