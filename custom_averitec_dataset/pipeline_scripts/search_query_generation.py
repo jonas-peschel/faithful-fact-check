@@ -10,8 +10,7 @@ from utils import load_json, save_json
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Generate search queries for web-based evidence retrieval.")
-    parser.add_argument("--input_path", type=str, default=None, help="Path to the input AVeriTeC data")
-    parser.add_argument("--results_path", type=str, default=None, help="Path where to save the results to.")
+    parser.add_argument("--results_path", type=str, default=None, help="Path to the AVeriTeC data file.")
     parser.add_argument("--verbose", action="store_true", help="Whether to print model output text")
     return parser.parse_args()
 
@@ -103,6 +102,7 @@ def query_model(model, tokenizer, device, claim, date):
 
     generate_kwargs = {
         "max_new_tokens": 1024, 
+        "do_sample": True,
         "temperature": 0.7,
         "top_p": 0.9,
         "top_k": 50,
@@ -117,25 +117,25 @@ def query_model(model, tokenizer, device, claim, date):
     return output_text
 
 class SearchQueriesList(RootModel):
-    search_queries: List[str]
+    root: List[str]
 
-def parse_output_text(output_json: str) -> List[str] | None:
+def parse_output_text(output_json: str, eos_token: str) -> List[str] | None:
 
     max_queries = 5
 
     try:
-        clean_json = output_json.strip().replace("```json", "").replace("```", "")  # clean triple backticks
+        clean_json = output_json.strip().replace("```json", "").replace("```", "").replace(eos_token, "")  # clean triple backticks and end-of-sequence token
         search_queries = SearchQueriesList.model_validate_json(clean_json)
     except (JSONDecodeError, ValidationError): 
         return None
 
-    return search_queries.search_queries[:max_queries]
+    return search_queries.root[:max_queries]
 
 def get_model_output(model, tokenizer, device, claim, date):
     n_tries = 5
     for _ in range(n_tries):
         output_text = query_model(model, tokenizer, device, claim, date)
-        search_queries = parse_output_text(output_text)
+        search_queries = parse_output_text(output_text, tokenizer.eos_token)
 
         # return results if they are valid
         if search_queries:
@@ -148,13 +148,7 @@ def main(config=None):
     if config is None:
         config = parse_args() 
 
-    # load existing results or make directories for results path
-    results_path = Path(config.results_path)
-    if not results_path.exists():
-        results_path.parent.mkdir(parents=True, exist_ok=True)
-        results = load_json(config.input_path)  # copy input file to results
-    else:
-        results = load_json(config.results_path)  # load existing results
+    results = load_json(config.results_path)  # load existing results
 
     model, tokenizer, device = load_model()
 
@@ -168,13 +162,13 @@ def main(config=None):
         search_queries, output_text = get_model_output(model, tokenizer, device, claim_text, date) 
 
         if config.verbose:
-            print(f"Claim: {claim_text}\nModel output: {output_text}\n\n")
+            print(f"Claim: {claim_text}\nModel output: {output_text}\nSearch Queries: {search_queries}\n\n")
 
         # add search queries to the results
         claim_results["search_queries"] = search_queries
 
         # save results each iteration
-        save_json(results_path, results)
+        save_json(config.results_path, results)
 
 if __name__ == "__main__":
     main()
