@@ -81,7 +81,7 @@ def load_data(dataset_name, n_samples=-1, start_idx=0, seed=0):
 
     # Dataset 4: MultiFieldQA-en
     if dataset_name == "multifieldqa_en":
-        dataset = load_dataset("jonaspeschel/MultiFieldQA-en-capped-context", split="train")
+        dataset = load_dataset("jonaspeschel/MultiFieldQA-en", split="train")
         
     if n_samples == -1:
         n_samples = len(dataset)
