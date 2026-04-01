@@ -8,7 +8,7 @@ from tqdm.auto import tqdm
 from urllib.parse import urlparse
 from dateutil import parser
 import trafilatura
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError 
 import requests
 from pathlib import Path 
 from utils import load_json, save_json 
@@ -48,8 +48,7 @@ def get_domain_name(url):
     return domain
 
 def format_claim_date(claim):
-    """Format the claim's date for restricted Google search 
-    """
+    """Format the claim's date for restricted Google search"""
     
     try:
         day, month, year = claim["claim_date"].split("-")
@@ -258,6 +257,7 @@ def parallel_scraping(urls, search_infos, max_workers=4, max_pages=None):
 
     successful_results = []
     failed_results = []
+    TIMEOUT = 300 # wait up to 5 min for one page
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {executor.submit(scrape_page, url): (url, info) for url, info in zip(urls, search_infos)}   # submit all scraping tasks
@@ -268,7 +268,7 @@ def parallel_scraping(urls, search_infos, max_workers=4, max_pages=None):
 
                 # get result from the submitted future
                 try:
-                    content, error = future.result()
+                    content, error = future.result(timeout=TIMEOUT)
 
                     if not error:
                         successful_results.append({
@@ -293,6 +293,14 @@ def parallel_scraping(urls, search_infos, max_workers=4, max_pages=None):
                             "error": error
                         })
                         print(f"Failed scraping URL: {url} with error: {error}")
+                except TimeoutError:
+                    error = f"Failed scraping URL within the timeout limit of {TIMEOUT}s."
+                    failed_results.append({
+                            "url": url,
+                            "search_info": search_info,
+                            "error": error
+                        })
+                    print(f"Failed scraping URL: {url} with error: {error}")
                 except Exception as e:
                     error = str(e)
                     failed_results.append({
