@@ -31,7 +31,7 @@ def parse_args():
     parser.add_argument("--store_folder", type=str, default="web_evidence", help="Path to the folder where the scraped web page content gets stored")
     parser.add_argument("--n_pages", type=int, default=3, help="Number of pages per search query for Google search")
     parser.add_argument("--start_idx", type=int, default=0, help="Claim to start with")
-    parser.add_argument("--end_idx", type=int, default=-1, help="Claim to end with")
+    parser.add_argument("--end_idx", type=int, default=None, help="Claim to end with")
     parser.add_argument("--trafilatura_config", type=str, default="retrieval_configs/config.cfg", help="Path to the trafilatura config file")
     parser.add_argument("--n_scrape_workers", type=int, default=6, help="Number of workers for web scraping")
     parser.add_argument("--max_pages", type=int, default=None, help="Maximum number of pages to retrieve per claim")
