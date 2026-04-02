@@ -12,17 +12,44 @@ from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError
 import requests
 from pathlib import Path 
 from utils import load_json, save_json 
+import random 
 
 # list of websites forbidden for google search (fact-checking websites)
-FORBIDDEN_WEBSITES = [
+FORBIDDEN_DOMAINS = [
     "politifact.com",
     "snopes.com",
     "factcheck.org",
-    "washingtonpost.com/news/fact-checker",
-    "apnews.com/hub/ap-fact-check",
     "fullfact.org",
-    "reuters.com/fact-check",
-    "huggingface.co"
+    "huggingface.co",
+    "facebook.com",
+]
+
+# different header profiles for web scraping
+HEADER_PROFILES = [
+    {
+        # Chrome, Windows, English
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Firefox/149.0",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Referer": "https://www.google.com/",
+    },
+    {
+        # Firefox, Windows, English/French
+        "User-Agent": "(Windows NT 10.0; Win64; x64; rv:149.0) Gecko/20100101 Firefox/149.0",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Accept-Language": "en-GB,en;q=0.8,fr;q=0.6",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Referer": "https://www.bing.com/",
+    },
+    {
+        # Chrome, macOS, German
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Accept-Language": "de-DE,de;q=0.9,en-US;q=0.5,en;q=0.3",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Referer": "https://www.ecosia.org/",
+    },
 ]
 
 def parse_args():
@@ -128,10 +155,13 @@ def date_filter(search_results, claim_date):
 def google_search(query, api_key, claim_date, n_pages, is_date_filtering):
     serper_url = "https://google.serper.dev/search"
 
+    # exclude forbidden domains directly in the query to not "waste" results
+    exclude_str = " " + " ".join([f"-site:{domain}" for domain in FORBIDDEN_DOMAINS])
+
     search_results = []
     for page in range(1, n_pages+1):
         search_params = {
-            "q": query,
+            "q": query + exclude_str,
             "autocorrect": False,
             # "num": 10,
             "page": page,
@@ -216,7 +246,7 @@ def get_all_urls(claim_results, n_pages, api_key):
             date = search_result.get("date", None)
 
             # skip search results from forbidden sites
-            if (domain in FORBIDDEN_WEBSITES):
+            if (domain in FORBIDDEN_DOMAINS):
                 continue
 
             if url not in urls:
@@ -231,33 +261,38 @@ def get_all_urls(claim_results, n_pages, api_key):
     return urls, search_infos
 
 def scrape_page(url, trafilatura_config):
-    """Fetch and scrape a URL using trafilatura package.
-    Return textual content and potential error.
-    """
+    """Fetch and scrape given URL."""
 
-    # fetch URL
-    n_tries = 1     # more tries do not seem to help 
-    for i in range(1, n_tries+1):
-        try:
-            fetched = trafilatura.fetch_url(url, config=trafilatura_config)
-            if fetched is None:
-                return None, "Fetch failed"
+    try:
+        # fetched = trafilatura.fetch_url(url, config=trafilatura_config)
+        # if fetched is None:
+        #     return None, "Fetch failed"
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Firefox/149.0"
+        }
+        response = requests.get(url, headers=headers, timeout=30)
+        if response.status_code != 200:
+            return None, f"HTTP error {response.status_code}"
 
-            content = trafilatura.extract(fetched, include_comments=False, with_metadata=False, no_fallback=False, config=trafilatura_config)
-            if not content:
-                return None, "No content extracted"
+        content = trafilatura.extract(
+            response.text, 
+            include_comments=False, 
+            with_metadata=False, 
+            no_fallback=False, 
+            config=trafilatura_config
+        )
+        if not content:
+            return None, "No content extracted"
 
-            return content, None 
-        except Exception as e:
-            if i == n_tries:
-                return None, str(e)
-            sleep(3)
+        return content, None 
+    except Exception as e:
+            return None, str(e)
 
 def parallel_scraping(urls, search_infos, trafilatura_config, max_workers=4, max_pages=None):
 
     successful_results = []
     failed_results = []
-    TIMEOUT = 300 # wait up to 5 min for one page
+    TIMEOUT = 600 # wait up to 10 min for one page
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {executor.submit(scrape_page, url, trafilatura_config): (url, info) for url, info in zip(urls, search_infos)}   # submit all scraping tasks
