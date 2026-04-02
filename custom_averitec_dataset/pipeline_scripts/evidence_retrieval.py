@@ -32,6 +32,7 @@ def parse_args():
     parser.add_argument("--n_pages", type=int, default=3, help="Number of pages per search query for Google search")
     parser.add_argument("--start_idx", type=int, default=0, help="Claim to start with")
     parser.add_argument("--end_idx", type=int, default=-1, help="Claim to end with")
+    parser.add_argument("--trafilatura_config", type=str, default="retrieval_configs/config.cfg", help="Path to the trafilatura config file")
     parser.add_argument("--n_scrape_workers", type=int, default=6, help="Number of workers for web scraping")
     parser.add_argument("--max_pages", type=int, default=None, help="Maximum number of pages to retrieve per claim")
 
@@ -229,38 +230,37 @@ def get_all_urls(claim_results, n_pages, api_key):
                 })
     return urls, search_infos
 
-def scrape_page(url):
-    """ Fetch and scrape a URL using trafilatura package.
+def scrape_page(url, trafilatura_config):
+    """Fetch and scrape a URL using trafilatura package.
     Return textual content and potential error.
     """
-
-    config = trafilatura.settings.use_config() # trafilatura config
 
     # fetch URL
     n_tries = 1     # more tries do not seem to help 
     for i in range(1, n_tries+1):
         try:
-            fetched = trafilatura.fetch_url(url, config=config)
+            fetched = trafilatura.fetch_url(url, config=trafilatura_config)
+            if fetched is None:
+                return None, "Fetch failed"
+
+            content = trafilatura.extract(fetched, include_comments=False, with_metadata=False, no_fallback=False, config=trafilatura_config)
+            if not content:
+                return None, "No content extracted"
+
+            return content, None 
         except Exception as e:
             if i == n_tries:
                 return None, str(e)
             sleep(3)
 
-    # extract content
-    content = trafilatura.extract(fetched, include_comments=False, with_metadata=False, no_fallback=False, config=config)
-    if not content:
-        return None, "No content extracted"
-
-    return content, None 
-
-def parallel_scraping(urls, search_infos, max_workers=4, max_pages=None):
+def parallel_scraping(urls, search_infos, trafilatura_config, max_workers=4, max_pages=None):
 
     successful_results = []
     failed_results = []
     TIMEOUT = 300 # wait up to 5 min for one page
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = {executor.submit(scrape_page, url): (url, info) for url, info in zip(urls, search_infos)}   # submit all scraping tasks
+        futures = {executor.submit(scrape_page, url, trafilatura_config): (url, info) for url, info in zip(urls, search_infos)}   # submit all scraping tasks
 
         with tqdm(total=len(urls), desc="Scrape web pages", leave=False) as prog_bar:
             for future in as_completed(futures):
@@ -318,6 +318,8 @@ def main(config=None):
     if config is None:
         config = parse_args() 
 
+    trafilatura_config = trafilatura.settings.use_config(config.trafilatura_config) # trafilatura config
+    
     load_dotenv()
     SERPER_API_KEY = os.environ.get("SERPER_API_KEY")
 
@@ -336,7 +338,7 @@ def main(config=None):
         urls, search_infos = get_all_urls(claim_results, config.n_pages, SERPER_API_KEY)
 
         # 2. scrape URLs using trafilatura
-        successful_results, failed_results = parallel_scraping(urls, search_infos, max_workers=config.n_scrape_workers, max_pages=config.max_pages)
+        successful_results, failed_results = parallel_scraping(urls, search_infos, trafilatura_config, max_workers=config.n_scrape_workers, max_pages=config.max_pages)
 
         # 3. store the successfully scraped content and corresponding search infos
         for i, search_result in enumerate(successful_results, start=1):
