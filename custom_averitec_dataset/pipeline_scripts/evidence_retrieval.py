@@ -416,6 +416,7 @@ def scrape_html(url, trafilatura_config):
             include_comments=False, 
             with_metadata=False, 
             no_fallback=False, 
+            include_formatting=True,
             config=trafilatura_config
         )
 
