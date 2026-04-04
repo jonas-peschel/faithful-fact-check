@@ -499,12 +499,14 @@ def main(config=None):
                     "search_info": info,
                     "content": content,
                 })
+                print(f"Successfully scraped URL: {url}")
             else:
                 failed_results.append({
                     "url": url,
                     "search_info": info,
                     "error": error,
                 })
+                print(f"Failed scraping URL: {url} with error: {error}")
 
         # 3. store the successfully scraped content and corresponding search infos
         for i, search_result in enumerate(successful_results, start=1):
