@@ -1,9 +1,6 @@
 import argparse
 import os 
 import io
-import gc 
-import asyncio
-from tqdm.asyncio import tqdm as tqdm_async
 from dotenv import load_dotenv  
 import time
 from time import sleep
@@ -12,14 +9,14 @@ from tqdm.auto import tqdm
 from urllib.parse import urlparse
 from dateutil import parser
 import trafilatura
-from playwright.async_api import async_playwright 
-from playwright_stealth import Stealth
 import pdfplumber
+from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError 
 import requests
 from pathlib import Path 
 from utils import load_json, save_json 
 import random 
 import re 
+import gc 
 
 # list of websites forbidden for google search (fact-checking websites)
 FORBIDDEN_DOMAINS = [
@@ -159,11 +156,16 @@ def date_filter(search_results, claim_date):
     filtered_search_results = [search_result for search_result in search_results if compare_dates(search_result, claim_date)]
     return filtered_search_results 
 
-def google_search(query, api_key, claim_date, n_pages, is_date_filtering):
+def google_search(query, api_key, claim_date, n_pages, is_date_filtering, is_pdf):
     serper_url = "https://google.serper.dev/search"
 
     # exclude forbidden domains directly in the query to not "waste" results
-    exclude_str = " " + " ".join([f"-site:{domain}" for domain in FORBIDDEN_DOMAINS])
+    # and exclude all PDFs or specificall only retrieve PDFs
+    if is_pdf:
+        exclude_str = " filetype:pdf"
+    else:
+        exclude_str = " -filetype:pdf"
+    exclude_str += " " + " ".join([f"-site:{domain}" for domain in FORBIDDEN_DOMAINS])
 
     search_results = []
     for page in range(1, n_pages+1):
@@ -189,7 +191,7 @@ def google_search(query, api_key, claim_date, n_pages, is_date_filtering):
             search_results.extend(result['organic'])   
     return search_results
     
-def get_google_search_results(search_query, api_key, claim_date, n_pages):
+def get_google_search_results(search_query, api_key, claim_date, n_pages, is_pdf):
     """
     Try google search with incorporated date filtering, if no results are found
     try without, return search result items with (additional) post-hoc date filtering.
@@ -199,11 +201,12 @@ def get_google_search_results(search_query, api_key, claim_date, n_pages):
     search_results_full = []
     for i_try in range(n_tries):
         try:
-            search_results = google_search(query = search_query,
-                                            api_key = api_key,
-                                            claim_date = claim_date,
-                                            n_pages = n_pages,
-                                            is_date_filtering = True)
+            search_results = google_search(query=search_query, 
+                                           api_key=api_key, 
+                                           claim_date=claim_date, 
+                                           n_pages=n_pages, 
+                                           is_date_filtering=True, 
+                                           is_pdf=is_pdf)
             
             if len(search_results) == 0:
                 break
@@ -214,22 +217,21 @@ def get_google_search_results(search_query, api_key, claim_date, n_pages):
             sleep(3 + 2*i_try)
 
     # check if a sufficient number of web pages was retrieved; if not fall back to post-hoc date filtering
-    if len(search_results_full) >= 10:
-        return search_results_full 
+    if not len(search_results_full) >= 3*n_pages:
+        print("Not enough search results found for this search query. Falling back to post-hoc date filtering...")
+        for i_try in range(n_tries):
+            try:
+                search_results = google_search(query=search_query,
+                                            api_key=api_key,
+                                            claim_date=claim_date,
+                                            n_pages=n_pages,
+                                            is_date_filtering=False,
+                                            is_pdf=is_pdf)
 
-    print("Not enough search results found for this search query. Falling back to post-hoc date filtering...")
-    for i_try in range(n_tries):
-        try:
-            search_results = google_search(query = search_query,
-                                           api_key = api_key,
-                                           claim_date = claim_date,
-                                           n_pages = n_pages,
-                                           is_date_filtering = False)
-
-            search_results = date_filter(search_results, claim_date)
-            search_results_full.extend(search_results)     
-        except Exception:
-            sleep(3 + 2*i_try)
+                search_results = date_filter(search_results, claim_date)
+                search_results_full.extend(search_results)     
+            except Exception:
+                sleep(3 + 2*i_try)
 
     return search_results_full 
 
@@ -239,32 +241,44 @@ def get_all_urls(claim_results, n_pages, api_key):
     search_infos = []
     search_strings, search_types = setup_search_strings(claim_results)
 
+    search_results_full = []
     for search_string, search_type in tqdm(list(zip(search_strings, search_types)), leave=False, desc="Google Search Queries"):
         search_results = get_google_search_results(search_query=search_string, 
                                                    api_key=api_key, 
                                                    claim_date=format_claim_date(claim_results), 
-                                                   n_pages=n_pages) 
-        
-        # loop through search result items and store them if they are new
-        for search_result in search_results:
-            url = str(search_result['link'])
-            domain = get_domain_name(url)
-            title = search_result.get("title", None)
-            date = search_result.get("date", None)
+                                                   n_pages=n_pages,
+                                                   is_pdf=False) 
+        search_results_full.extend(search_results)
 
-            # skip search results from forbidden sites
-            if (domain in FORBIDDEN_DOMAINS):
-                continue
+    # search up to 5 PDF's for raw claim as search string
+    print("Searching for PDFs...")
+    search_results_pdf = get_google_search_results(search_query=search_string, 
+                                                   api_key=api_key, 
+                                                   claim_date=format_claim_date(claim_results), 
+                                                   n_pages=1,
+                                                   is_pdf=True)
+    search_results_full.extend(search_results_pdf[:5]) 
 
-            if url not in urls:
-                urls.append(url)
-                search_infos.append({
-                    "url": url,
-                    "search_string": search_string,
-                    "search_type": search_type,
-                    "title": title,
-                    "date": date
-                })
+    # loop through search result items and store them if they are new
+    for search_result in search_results_full:
+        url = str(search_result['link'])
+        domain = get_domain_name(url)
+        title = search_result.get("title", None)
+        date = search_result.get("date", None)
+
+        # skip search results from forbidden sites
+        if (domain in FORBIDDEN_DOMAINS):
+            continue
+
+        if url not in urls:
+            urls.append(url)
+            search_infos.append({
+                "url": url,
+                "search_string": search_string,
+                "search_type": search_type,
+                "title": title,
+                "date": date
+            })
     return urls, search_infos
 
 def scrape_pdf(url):
@@ -292,33 +306,34 @@ def scrape_pdf(url):
         if response.status_code != 200:
             return None, f"HTTP Error {response.status_code} when fetching PDF"
         
-        with pdfplumber.open(io.BytesIO(response.content)) as pdf:
-            lines = []
-            lines_dict = {}
-            for page in pdf.pages:
-                words = page.extract_words(use_text_flow=True, split_at_punctuation=False)
-                if not words:
-                    continue
+        with io.BytesIO(response.content) as b_stream:
+            with pdfplumber.open(b_stream) as pdf:
+                lines = []
+                lines_dict = {}
+                for page in pdf.pages:
+                    words = page.extract_words(use_text_flow=True, split_at_punctuation=False)
+                    if not words:
+                        continue
 
-                page_lines = []
-                current_line = [words[0]]
-                for word in words[1:]:
-                    prev_word = current_line[-1]
-                    # group words into lines based on vertical position
-                    if abs(word["top"] - prev_word["top"]) < 3:  # use 3 as heuristic
-                        current_line.append(word)
-                    else:
-                        page_lines.append(current_line)
-                        # keep track of line occurrences
-                        current_line_text = " ".join(w["text"] for w in current_line)
-                        lines_dict[current_line_text] = lines_dict.get(current_line_text, 0) + 1
-                        current_line = [word]
+                    page_lines = []
+                    current_line = [words[0]]
+                    for word in words[1:]:
+                        prev_word = current_line[-1]
+                        # group words into lines based on vertical position
+                        if abs(word["top"] - prev_word["top"]) < 3:  # use 3 as heuristic
+                            current_line.append(word)
+                        else:
+                            page_lines.append(current_line)
+                            # keep track of line occurrences
+                            current_line_text = " ".join(w["text"] for w in current_line)
+                            lines_dict[current_line_text] = lines_dict.get(current_line_text, 0) + 1
+                            current_line = [word]
 
-                page_lines.append(current_line)
-                # keep track of line occurrences
-                current_line_text = " ".join(w["text"] for w in current_line)
-                lines_dict[current_line_text] = lines_dict.get(current_line_text, 0) + 1
-                lines.append(page_lines)
+                    page_lines.append(current_line)
+                    # keep track of line occurrences
+                    current_line_text = " ".join(w["text"] for w in current_line)
+                    lines_dict[current_line_text] = lines_dict.get(current_line_text, 0) + 1
+                    lines.append(page_lines)
 
         paragraphs = []
         for page_lines in lines:
@@ -384,54 +399,42 @@ def scrape_pdf(url):
             response.close()
         gc.collect()
     
-async def scrape_html(browser, url, trafilatura_config):
-    """Scrape textual content from HTML page using Playwright + trafilatura"""
+def scrape_html(url, trafilatura_config):
+    """Scrape textual content from HTML page using trafilatura"""
 
     try:
         ## first option: use trafilatura to fetch the html
         # 1. fetch raw html
-        html = await asyncio.to_thread(trafilatura.fetch_url, url, config=trafilatura_config)
+        html = trafilatura.fetch_url(url, config=trafilatura_config)
+        if not html:
+            return None, "Failed to fetch URL using trafilatura"
 
         # 2. extract content from raw html
-        content = await asyncio.to_thread(
-            trafilatura.extract,
+        content = trafilatura.extract(
             html, 
             include_comments=False, 
             with_metadata=False, 
             no_fallback=False, 
-            config=trafilatura_config,
+            config=trafilatura_config
         )
-        if content: 
-            return content, None 
 
-        ## fallback option: Playwright
-        print("Trafilatura failed to fetch URL or no content was extracted. Falling back to Playwright...")
-        profile = random.choice(HEADER_PROFILES) 
-        context = await browser.new_context(
-            user_agent=profile["User-Agent"],
-            extra_http_headers={k: v for k, v in profile.items() if k != "User-Agent"}
-        )
-        page = await context.new_page()
-        stealth = await Stealth()
-        await stealth.apply_stealth_async(page)
-
-        response = await page.goto(url, wait_until="domcontentloaded", timeout=30000) 
-        await asyncio.sleep(1)  # Wait for JS to finish
-        if not response or response.status != 200:
-            return None, f"HTTP error {response.status if response else ''}"
+        # ## second option: requests
+        # print("Trafilatura failed to fetch URL or no content was extracted. Falling back to requests...")
+        # headers = random.choice(HEADER_PROFILES)
+        # response = requests.get(url, headers=headers, timeout=30) 
+        # if response.status_code != 200:
+        #     return None, f"HTTP Error {response.status_code} when fetching PDF"
+        # html = response.content 
         
-        html = await page.content() # Get the full rendered HTML
-        await context.close()
+        # # 2. extract content from raw html
+        # content = trafilatura.extract(
+        #     html, 
+        #     include_comments=False, 
+        #     with_metadata=False, 
+        #     no_fallback=False, 
+        #     config=trafilatura_config
+        # )
 
-        # 2. extract content from raw html
-        content = await asyncio.to_thread(
-            trafilatura.extract,
-            html, 
-            include_comments=False, 
-            with_metadata=False, 
-            no_fallback=False, 
-            config=trafilatura_config,
-        )
         if not content:
             return None, "No content extracted"
 
@@ -440,32 +443,75 @@ async def scrape_html(browser, url, trafilatura_config):
         return None, str(e)
 
 
-async def scrape_page(browser, url, trafilatura_config):
+def scrape_page(url, trafilatura_config):
     """Fetch and scrape given URL."""
 
     # check if the URL is a .pdf file
     path = urlparse(url).path.lower()
     if path.endswith(".pdf"):
-        return await asyncio.to_thread(scrape_pdf, url)
+        return scrape_pdf(url)
     else:
-        return await scrape_html(browser, url, trafilatura_config)
+        return scrape_html(url, trafilatura_config)
         
-async def parallel_scraping(urls, search_infos, trafilatura_config, max_concurrent=6):
-        
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
-        semaphore = asyncio.Semaphore(max_concurrent)
+def parallel_scraping(urls, search_infos, trafilatura_config, max_workers=4, max_pages=None):
 
-        async def sem_task(url, info):
-            async with semaphore:
-                content, error = await scrape_page(browser, url, trafilatura_config)
-                return (url, info, content, error)
-            
-        tasks = [sem_task(url, info) for url, info in zip(urls, search_infos)]
-        results = await tqdm_async.gather(*tasks, desc="Scrape web pages", leave=False)
+    successful_results = []
+    failed_results = []
+    TIMEOUT = 60 # wait up to 1 min for one page
 
-        await browser.close()
-        return results
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {executor.submit(scrape_page, url, trafilatura_config): (url, info) for url, info in zip(urls, search_infos)}   # submit all scraping tasks
+
+        with tqdm(total=len(urls), desc="Scrape web pages", leave=False) as prog_bar:
+            for future in as_completed(futures):
+                url, search_info = futures[future]
+
+                # get result from the submitted future
+                try:
+                    content, error = future.result(timeout=TIMEOUT)
+
+                    if not error:
+                        successful_results.append({
+                            "url": url,
+                            "search_info": search_info,
+                            "content": content
+                        })
+                        print(f"Successfully scraped URL: {url}")
+
+                        # check for early stopping condition
+                        if ((max_pages is not None) and (len(successful_results) >= max_pages)):
+                            print("Reached early stopping condition!")
+                            # cancel remaining futures
+                            for future in futures:
+                                if not future.done():
+                                    future.cancel()
+                            break
+                    else:
+                        failed_results.append({
+                            "url": url,
+                            "search_info": search_info,
+                            "error": error
+                        })
+                        print(f"Failed scraping URL: {url} with error: {error}")
+                except TimeoutError:
+                    error = f"Failed scraping URL within the timeout limit of {TIMEOUT}s."
+                    failed_results.append({
+                            "url": url,
+                            "search_info": search_info,
+                            "error": error
+                        })
+                    print(f"Failed scraping URL: {url} with error: {error}")
+                except Exception as e:
+                    error = str(e)
+                    failed_results.append({
+                            "url": url,
+                            "search_info": search_info,
+                            "error": error
+                        })
+                    print(f"Failed scraping URL: {url} with error: {error}")
+                prog_bar.update(1)
+
+    return successful_results, failed_results 
 
 def main(config=None):
 
@@ -491,27 +537,8 @@ def main(config=None):
         # 1. get URLs from Google search via SERP API
         urls, search_infos = get_all_urls(claim_results, config.n_pages, SERPER_API_KEY)
 
-        # 2. scrape URLs using trafilatura / Playwright
-        results = asyncio.run(
-            parallel_scraping(urls, search_infos, trafilatura_config, max_concurrent=config.n_scrape_workers)
-        )
-
-        successful_results, failed_results = [], []
-        for url, info, content, error in results:
-            if not error:
-                successful_results.append({
-                    "url": url,
-                    "search_info": info,
-                    "content": content,
-                })
-                print(f"Successfully scraped URL: {url}")
-            else:
-                failed_results.append({
-                    "url": url,
-                    "search_info": info,
-                    "error": error,
-                })
-                print(f"Failed scraping URL: {url} with error: {error}")
+        # 2. scrape URLs using trafilatura
+        successful_results, failed_results = parallel_scraping(urls, search_infos, trafilatura_config, max_workers=config.n_scrape_workers, max_pages=config.max_pages)
 
         # 3. store the successfully scraped content and corresponding search infos
         for i, search_result in enumerate(successful_results, start=1):
