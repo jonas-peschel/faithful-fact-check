@@ -1,5 +1,8 @@
 import argparse
 import os 
+import io
+import asyncio
+from tqdm.asyncio import tqdm as tqdm_async
 from dotenv import load_dotenv  
 import time
 from time import sleep
@@ -8,11 +11,14 @@ from tqdm.auto import tqdm
 from urllib.parse import urlparse
 from dateutil import parser
 import trafilatura
-from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError 
+from playwright.async_api import async_playwright 
+from playwright_stealth import Stealth
+import pdfplumber
 import requests
 from pathlib import Path 
 from utils import load_json, save_json 
 import random 
+import re 
 
 # list of websites forbidden for google search (fact-checking websites)
 FORBIDDEN_DOMAINS = [
@@ -28,7 +34,7 @@ FORBIDDEN_DOMAINS = [
 HEADER_PROFILES = [
     {
         # Chrome, Windows, English
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Firefox/149.0",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.9",
         "Accept-Encoding": "gzip, deflate, br",
@@ -36,7 +42,7 @@ HEADER_PROFILES = [
     },
     {
         # Firefox, Windows, English/French
-        "User-Agent": "(Windows NT 10.0; Win64; x64; rv:149.0) Gecko/20100101 Firefox/149.0",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
         "Accept-Language": "en-GB,en;q=0.8,fr;q=0.6",
         "Accept-Encoding": "gzip, deflate, br",
@@ -260,93 +266,201 @@ def get_all_urls(claim_results, n_pages, api_key):
                 })
     return urls, search_infos
 
-def scrape_page(url, trafilatura_config):
-    """Fetch and scrape given URL."""
+def scrape_pdf(url):
+    """Scrape PDF file"""
+
+    def line_is_noise(line_text):
+        if line_text.isdigit():
+            return True 
+        if((len(line_text) <= 5) and not any(char.isalpha() for char in line_text)):
+            return True 
+        return False 
+
+    def line_is_reoccurring(line_text, lines_dict):
+        """Remove lines re-occurring many times, e.g., headers."""
+        # for a line to be removed it must re-occurr multiple times AND have a meaningful length
+        # i.e., extremely short lines can plausibly re-occurr and should not be removed here 
+        if len(line_text) >= 10:
+            if lines_dict[line_text] >= 5:
+                return True 
+        return False
 
     try:
-        # fetched = trafilatura.fetch_url(url, config=trafilatura_config)
-        # if fetched is None:
-        #     return None, "Fetch failed"
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Firefox/149.0"
-        }
-        response = requests.get(url, headers=headers, timeout=30)
+        headers = random.choice(HEADER_PROFILES)
+        response = requests.get(url, headers=headers, timeout=30) 
         if response.status_code != 200:
-            return None, f"HTTP error {response.status_code}"
+            return None, f"HTTP Error {response.status_code} when fetching PDF"
+        
+        with pdfplumber.open(io.BytesIO(response.content)) as pdf:
+            lines = []
+            lines_dict = {}
+            for page in pdf.pages:
+                words = page.extract_words(use_text_flow=True, split_at_punctuation=False)
+                if not words:
+                    continue
 
-        content = trafilatura.extract(
-            response.text, 
+                page_lines = []
+                current_line = [words[0]]
+                for word in words[1:]:
+                    prev_word = current_line[-1]
+                    # group words into lines based on vertical position
+                    if abs(word["top"] - prev_word["top"]) < 3:  # use 3 as heuristic
+                        current_line.append(word)
+                    else:
+                        page_lines.append(current_line)
+                        # keep track of line occurrences
+                        current_line_text = " ".join(w["text"] for w in current_line)
+                        lines_dict[current_line_text] = lines_dict.get(current_line_text, 0) + 1
+                        current_line = [word]
+
+                page_lines.append(current_line)
+                # keep track of line occurrences
+                current_line_text = " ".join(w["text"] for w in current_line)
+                lines_dict[current_line_text] = lines_dict.get(current_line_text, 0) + 1
+                lines.append(page_lines)
+
+        paragraphs = []
+        for page_lines in lines:
+            # compute typical line spacing (for this page)
+            if len(page_lines) > 1:
+                spacings = [
+                    page_lines[i+1][0]["top"] - page_lines[i][0]["top"]
+                    for i in range(len(page_lines) - 1)
+                ]
+                median_spacing = sorted(spacings)[len(spacings) // 2]
+                paragraph_threshold = median_spacing * 1.5
+            else:
+                paragraph_threshold = 20  # fallback
+
+            # join lines into paragraphs based on spacing
+            page_paragraphs = []
+            first_line_text = " ".join(w["text"] for w in page_lines[0])
+            current_paragraph = [first_line_text] if (not line_is_noise(first_line_text.strip()) 
+                                                      and not line_is_reoccurring(first_line_text, lines_dict)) else []
+            for i in range(1, len(page_lines)):
+                spacing = page_lines[i][0]["top"] - page_lines[i-1][0]["top"]
+                line_text = " ".join(w["text"] for w in page_lines[i])
+                # remove non-content lines, e.g., page numbers
+                if line_is_noise(line_text.strip()) or line_is_reoccurring(line_text, lines_dict):
+                    continue
+                if spacing > paragraph_threshold:
+                    page_paragraphs.append(" ".join(current_paragraph))
+                    current_paragraph = [line_text]
+                else:
+                    current_paragraph.append(line_text)
+            page_paragraphs.append(" ".join(current_paragraph))
+
+            # merge with last paragraph from the previous page if the paragraph spans across pages
+            if paragraphs and page_paragraphs:
+                last = paragraphs[-1]
+                if not last.strip()[-1] in ".!?:":
+                    paragraphs[-1] = last + " " + page_paragraphs[0]
+                    paragraphs.extend(page_paragraphs[1:])
+                else:
+                    paragraphs.extend(page_paragraphs)
+            else:
+                paragraphs.extend(page_paragraphs)
+
+        # remove extremely short paragraphs 
+        paragraphs = [p for p in paragraphs if len(p) > 5]
+
+        for i, p in enumerate(paragraphs):
+            # clean up multiple consecutive spaces and newlines
+            p = re.sub(r"\s+", " ", p)  
+            paragraphs[i] = p
+
+        content = "\n\n".join(paragraphs)
+
+        if content:
+            return content, None 
+        else:
+            return None, "No content extracted from PDF"
+
+    except Exception as e:
+        return None, str(e)
+    
+async def scrape_html(browser, url, trafilatura_config):
+    """Scrape textual content from HTML page using Playwright + trafilatura"""
+
+    try:
+        ## first option: use trafilatura to fetch the html
+        # 1. fetch raw html
+        html = await asyncio.to_thread(trafilatura.fetch_url, url, config=trafilatura_config)
+
+        # 2. extract content from raw html
+        content = await asyncio.to_thread(
+            trafilatura.extract,
+            html, 
             include_comments=False, 
             with_metadata=False, 
             no_fallback=False, 
-            config=trafilatura_config
+            config=trafilatura_config,
+        )
+        if content: 
+            return content, None 
+
+        ## fallback option: Playwright
+        print("Trafilatura failed to fetch URL or no content was extracted. Falling back to Playwright...")
+        profile = random.choice(HEADER_PROFILES) 
+        context = await browser.new_context(
+            user_agent=profile["User-Agent"],
+            extra_http_headers={k: v for k, v in profile.items() if k != "User-Agent"}
+        )
+        page = await context.new_page()
+        stealth = await Stealth()
+        await stealth.apply_stealth_async(page)
+
+        response = await page.goto(url, wait_until="domcontentloaded", timeout=30000) 
+        await asyncio.sleep(1)  # Wait for JS to finish
+        if not response or response.status != 200:
+            return None, f"HTTP error {response.status if response else ''}"
+        
+        html = await page.content() # Get the full rendered HTML
+        await context.close()
+
+        # 2. extract content from raw html
+        content = await asyncio.to_thread(
+            trafilatura.extract,
+            html, 
+            include_comments=False, 
+            with_metadata=False, 
+            no_fallback=False, 
+            config=trafilatura_config,
         )
         if not content:
             return None, "No content extracted"
 
         return content, None 
     except Exception as e:
-            return None, str(e)
+        return None, str(e)
 
-def parallel_scraping(urls, search_infos, trafilatura_config, max_workers=4, max_pages=None):
 
-    successful_results = []
-    failed_results = []
-    TIMEOUT = 600 # wait up to 10 min for one page
+async def scrape_page(browser, url, trafilatura_config):
+    """Fetch and scrape given URL."""
 
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = {executor.submit(scrape_page, url, trafilatura_config): (url, info) for url, info in zip(urls, search_infos)}   # submit all scraping tasks
+    # check if the URL is a .pdf file
+    path = urlparse(url).path.lower()
+    if path.endswith(".pdf"):
+        return await asyncio.to_thread(scrape_pdf, url)
+    else:
+        return await scrape_html(browser, url, trafilatura_config)
+        
+async def parallel_scraping(urls, search_infos, trafilatura_config, max_concurrent=6):
+        
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True)
+        semaphore = asyncio.Semaphore(max_concurrent)
 
-        with tqdm(total=len(urls), desc="Scrape web pages", leave=False) as prog_bar:
-            for future in as_completed(futures):
-                url, search_info = futures[future]
+        async def sem_task(url, info):
+            async with semaphore:
+                content, error = await scrape_page(browser, url, trafilatura_config)
+                return (url, info, content, error)
+            
+        tasks = [sem_task(url, info) for url, info in zip(urls, search_infos)]
+        results = await tqdm_async.gather(*tasks, desc="Scrape web pages", leave=False)
 
-                # get result from the submitted future
-                try:
-                    content, error = future.result(timeout=TIMEOUT)
-
-                    if not error:
-                        successful_results.append({
-                            "url": url,
-                            "search_info": search_info,
-                            "content": content
-                        })
-                        print(f"Successfully scraped URL: {url}")
-
-                        # check for early stopping condition
-                        if ((max_pages is not None) and (len(successful_results) >= max_pages)):
-                            print("Reached early stopping condition!")
-                            # cancel remaining futures
-                            for future in futures:
-                                if not future.done():
-                                    future.cancel()
-                            break
-                    else:
-                        failed_results.append({
-                            "url": url,
-                            "search_info": search_info,
-                            "error": error
-                        })
-                        print(f"Failed scraping URL: {url} with error: {error}")
-                except TimeoutError:
-                    error = f"Failed scraping URL within the timeout limit of {TIMEOUT}s."
-                    failed_results.append({
-                            "url": url,
-                            "search_info": search_info,
-                            "error": error
-                        })
-                    print(f"Failed scraping URL: {url} with error: {error}")
-                except Exception as e:
-                    error = str(e)
-                    failed_results.append({
-                            "url": url,
-                            "search_info": search_info,
-                            "error": error
-                        })
-                    print(f"Failed scraping URL: {url} with error: {error}")
-                prog_bar.update(1)
-
-    return successful_results, failed_results 
+        await browser.close()
+        return results
 
 def main(config=None):
 
@@ -369,11 +483,28 @@ def main(config=None):
         Path(config.store_folder + f"/claim_{idx}").mkdir(exist_ok=True, parents=True)
 
         ## Retrieval
-        # 1. get URLs from Google search via Serper API
+        # 1. get URLs from Google search via SERP API
         urls, search_infos = get_all_urls(claim_results, config.n_pages, SERPER_API_KEY)
 
-        # 2. scrape URLs using trafilatura
-        successful_results, failed_results = parallel_scraping(urls, search_infos, trafilatura_config, max_workers=config.n_scrape_workers, max_pages=config.max_pages)
+        # 2. scrape URLs using trafilatura / Playwright
+        results = asyncio.run(
+            parallel_scraping(urls, search_infos, trafilatura_config, max_concurrent=config.n_scrape_workers)
+        )
+
+        successful_results, failed_results = [], []
+        for url, info, content, error in results:
+            if not error:
+                successful_results.append({
+                    "url": url,
+                    "search_info": info,
+                    "content": content,
+                })
+            else:
+                failed_results.append({
+                    "url": url,
+                    "search_info": info,
+                    "error": error,
+                })
 
         # 3. store the successfully scraped content and corresponding search infos
         for i, search_result in enumerate(successful_results, start=1):
