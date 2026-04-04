@@ -40,7 +40,7 @@ HEADER_PROFILES = [
     },
     {
         # Firefox, Windows, English/French
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:149.0) Gecko/20100101 Firefox/149.0",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
         "Accept-Language": "en-GB,en;q=0.8,fr;q=0.6",
         "Accept-Encoding": "gzip, deflate, br",
@@ -304,9 +304,10 @@ def scrape_pdf(url):
         headers = random.choice(HEADER_PROFILES)
         response = requests.get(url, headers=headers, timeout=30) 
         if response.status_code != 200:
-            return None, f"HTTP Error {response.status_code} when fetching PDF"
+            return None, None, f"HTTP Error {response.status_code} when fetching PDF"
+        raw_pdf = response.content
         
-        with io.BytesIO(response.content) as b_stream:
+        with io.BytesIO(raw_pdf) as b_stream:
             with pdfplumber.open(b_stream) as pdf:
                 lines = []
                 lines_dict = {}
@@ -388,12 +389,12 @@ def scrape_pdf(url):
         content = "\n\n".join(paragraphs)
 
         if content:
-            return content, None 
+            return content, raw_pdf, None 
         else:
-            return None, "No content extracted from PDF"
+            return None, None, "No content extracted from PDF"
 
     except Exception as e:
-        return None, str(e)
+        return None, None, str(e)
     finally:
         if response:
             response.close()
@@ -407,7 +408,7 @@ def scrape_html(url, trafilatura_config):
         # 1. fetch raw html
         html = trafilatura.fetch_url(url, config=trafilatura_config)
         if not html:
-            return None, "Failed to fetch URL using trafilatura"
+            return None, None, "Failed to fetch URL using trafilatura"
 
         # 2. extract content from raw html
         content = trafilatura.extract(
@@ -436,11 +437,11 @@ def scrape_html(url, trafilatura_config):
         # )
 
         if not content:
-            return None, "No content extracted"
+            return None, None, "No content extracted"
 
-        return content, None 
+        return content, html, None 
     except Exception as e:
-        return None, str(e)
+        return None, None, str(e)
 
 
 def scrape_page(url, trafilatura_config):
@@ -468,13 +469,14 @@ def parallel_scraping(urls, search_infos, trafilatura_config, max_workers=4, max
 
                 # get result from the submitted future
                 try:
-                    content, error = future.result(timeout=TIMEOUT)
+                    content, raw_content, error = future.result(timeout=TIMEOUT)
 
                     if not error:
                         successful_results.append({
                             "url": url,
                             "search_info": search_info,
-                            "content": content
+                            "content": content,
+                            "raw_content": raw_content,
                         })
                         print(f"Successfully scraped URL: {url}")
 
@@ -530,12 +532,17 @@ def main(config=None):
         # measure time for each claim
         start_time = time.time()
 
-        # make folder to store retrieved and scraped content
-        Path(config.store_folder + f"/claim_{idx}").mkdir(exist_ok=True, parents=True)
+        # make folder to store scraped text content and raw content
+        claim_folder = config.store_folder + f"/claim_{idx}"
+        Path(claim_folder).mkdir(exist_ok=True, parents=True)
+        raw_content_folder = claim_folder + "/raw_content"
+        Path(raw_content_folder).mkdir(exist_ok=True, parents=True)
 
         ## Retrieval
-        # 1. get URLs from Google search via SERP API
+        # 1. get URLs from Google search via SERP API (and store all URLs)
         urls, search_infos = get_all_urls(claim_results, config.n_pages, SERPER_API_KEY)
+        with open(claim_folder + "/all_urls.txt", "w") as f:
+            f.write("\n".join(urls))
 
         # 2. scrape URLs using trafilatura
         successful_results, failed_results = parallel_scraping(urls, search_infos, trafilatura_config, max_workers=config.n_scrape_workers, max_pages=config.max_pages)
@@ -543,10 +550,21 @@ def main(config=None):
         # 3. store the successfully scraped content and corresponding search infos
         for i, search_result in enumerate(successful_results, start=1):
 
-            store_file_path = config.store_folder + f"/claim_{idx}/search_result_{str(i)}.txt"
+            # store processed textual content
+            store_file_path = claim_folder + f"/search_result_{str(i)}.txt"
             with open(store_file_path, "w") as f:
                 f.write(search_result['content'])
 
+            # store raw content (either .pdf or .html)
+            if urlparse(search_result["url"]).path.lower().endswith(".pdf"):
+                store_file_path_raw = raw_content_folder + f"/search_result_raw_{str(i)}.pdf"
+                with open(store_file_path_raw, "wb") as f:
+                    f.write(search_result['raw_content'])
+            else:
+                store_file_path_raw = raw_content_folder + f"/search_result_raw_{str(i)}.html"
+                with open(store_file_path_raw, "w") as f:
+                    f.write(search_result['raw_content'])
+                
             # print logging information for each search result
             line = [
                 str(idx), 
@@ -559,8 +577,9 @@ def main(config=None):
             line = "\t".join(line)
             print(line)
 
+        # save search infos for successful results
         infos = [result['search_info'] for result in successful_results]
-        store_file_path_infos = config.store_folder + f"/claim_{idx}/search_infos.json"
+        store_file_path_infos = claim_folder + f"/search_infos.json"
         save_json(store_file_path_infos, infos)
 
         claim_scrape_time = time.time() - start_time
