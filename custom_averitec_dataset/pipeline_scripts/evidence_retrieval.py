@@ -248,15 +248,25 @@ def get_all_urls(claim_results, n_pages, api_key):
                                                    claim_date=format_claim_date(claim_results), 
                                                    n_pages=n_pages,
                                                    is_pdf=False) 
+        for res in search_results:
+            res.update({
+                "search_string": search_string,
+                "search_type": search_type,
+            })
         search_results_full.extend(search_results)
 
     # search up to 5 PDF's for raw claim as search string
     print("Searching for PDFs...")
-    search_results_pdf = get_google_search_results(search_query=search_string, 
+    search_results_pdf = get_google_search_results(search_query=search_strings[0], 
                                                    api_key=api_key, 
                                                    claim_date=format_claim_date(claim_results), 
                                                    n_pages=1,
                                                    is_pdf=True)
+    for res in search_results_pdf:
+        res.update({
+            "search_string": search_strings[0],
+            "search_type": search_types[0],
+        })
     search_results_full.extend(search_results_pdf[:5]) 
 
     # loop through search result items and store them if they are new
@@ -274,8 +284,8 @@ def get_all_urls(claim_results, n_pages, api_key):
             urls.append(url)
             search_infos.append({
                 "url": url,
-                "search_string": search_string,
-                "search_type": search_type,
+                "search_string": search_result["search_string"],
+                "search_type": search_result["search_type"],
                 "title": title,
                 "date": date
             })
