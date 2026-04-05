@@ -380,7 +380,7 @@ def scrape_pdf(url):
             # merge with last paragraph from the previous page if the paragraph spans across pages
             if paragraphs and page_paragraphs:
                 last = paragraphs[-1]
-                if not last.strip()[-1] in ".!?:":
+                if (not last.strip()) or (last.strip()[-1] not in ".!?:"):
                     paragraphs[-1] = last + " " + page_paragraphs[0]
                     paragraphs.extend(page_paragraphs[1:])
                 else:
