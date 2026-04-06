@@ -17,6 +17,8 @@ from utils import load_json, save_json
 import random 
 import re 
 import gc 
+import threading 
+from functools import wraps 
 
 # list of websites forbidden for google search (fact-checking websites)
 FORBIDDEN_DOMAINS = [
@@ -454,7 +456,24 @@ def scrape_html(url, trafilatura_config):
     except Exception as e:
         return None, None, str(e)
 
+def timeout(t):
+    def decorator(func):
+        @wraps(func) 
+        def wrapper(*args, **kwargs):
+            result = [None, None, f"Timeout, function did not return after {t}s."]
 
+            def target():
+                result[0], result[1], result[2] = func(*args, **kwargs)
+
+            thread = threading.Thread(target=target, daemon=True)
+            thread.start() 
+            thread.join(timeout=t)
+
+            return result[0], result[1], result[2] 
+        return wrapper 
+    return decorator 
+
+@timeout(t=120)
 def scrape_page(url, trafilatura_config):
     """Fetch and scrape given URL."""
 
