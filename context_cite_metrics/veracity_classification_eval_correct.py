@@ -4,7 +4,7 @@ import matplotlib
 import matplotlib.pyplot as plt
 matplotlib.use('Agg')
 import seaborn as sns
-from sklearn.metrics import classification_report, confusion_matrix
+from sklearn.metrics import classification_report, confusion_matrix, mean_squared_error, cohen_kappa_score 
 from utils import load_json, save_json
 
 def parse_args():
@@ -13,7 +13,13 @@ def parse_args():
    
     return parser.parse_args()
 
-def get_label_names(dataset_name):
+def get_label_names_ordinal(dataset_name):
+
+    if (dataset_name == "averitec" or dataset_name == "averitec_short_ans" 
+        or dataset_name == "averitec_web_evidence"  or dataset_name == "averitec_web_evidence_short_ans"):
+        return ['Supported', 'Conflicting Evidence/Cherrypicking', 'Refuted', 'Not Enough Evidence']
+
+def get_label_names_confusion_matrix(dataset_name):
 
     if (dataset_name == "averitec" or dataset_name == "averitec_short_ans" 
         or dataset_name == "averitec_web_evidence"  or dataset_name == "averitec_web_evidence_short_ans"):
@@ -31,19 +37,18 @@ def main(config=None):
         config = parse_args()
 
     results = load_json(config.results_path)
-    if results[-1].get("classification_performance"):
+    if results[-1].get("classification_metrics"):
         results = results[:-1]
 
     dataset_name = results[0]["dataset"]
-    LABELS = get_label_names(dataset_name)
-    LABELS_PRETTY = get_label_names_pretty(dataset_name)
+    LABELS = get_label_names_ordinal(dataset_name)
     label_to_idx = {l: i for i, l in enumerate(LABELS)}
 
-    y_true = [label_to_idx[res["label"]] for res in results]
-    y_pred = [label_to_idx[res["pred_label"]] for res in results]   
+    y_true = np.array([label_to_idx[res["label"]] for res in results])
+    y_pred = np.array([label_to_idx[res["pred_label"]] for res in results])
 
-    # classification metrics
-    results_dict = classification_report(
+    #--- Accuracy, Precision, Recall, F1 ---#
+    report = classification_report(
         y_true,
         y_pred,
         target_names=LABELS,
@@ -51,13 +56,7 @@ def main(config=None):
         output_dict=True,
     )
 
-    # append results dict to the input file and save it
-    results.append({
-        "classification_performance": results_dict,
-    })
-    save_json(config.results_path, results)
-
-    # print results
+    # print classification report
     print(classification_report(
         y_true,
         y_pred,
@@ -65,7 +64,26 @@ def main(config=None):
         zero_division=np.nan,
     ))
 
+    #--- ordinal metrics: MSE & Cohen's kappa ---#
+    # remove all instances where either prediction or ground truth is NEE as they don't fit in the ordinal ordering
+    mask = (y_true != label_to_idx["Not Enough Evidence"]) & (y_pred != label_to_idx["Not Enough Evidence"])
+    y_true_ordinal = y_true[mask] 
+    y_pred_ordinal = y_pred[mask] 
+
+    # compute mean squared error
+    mse = mean_squared_error(y_true_ordinal, y_pred_ordinal)
+
+    # compute Cohen's kappa quadratically weighted
+    kappa = cohen_kappa_score(y_true_ordinal, y_pred_ordinal, weights="quadratic")
+
     #--- confusion matrix ---#
+    LABELS = get_label_names_confusion_matrix(dataset_name)
+    LABELS_PRETTY = get_label_names_pretty(dataset_name)
+    label_to_idx = {l: i for i, l in enumerate(LABELS)}
+
+    y_true = np.array([label_to_idx[res["label"]] for res in results])
+    y_pred = np.array([label_to_idx[res["pred_label"]] for res in results])
+
     cm = confusion_matrix(y_true, y_pred)
     cm_normalized = cm / np.sum(cm, axis=1, keepdims=True)
 
@@ -102,6 +120,22 @@ def main(config=None):
     plot_save_path = f"plots/confusion_matrix_{dataset_name}.png"
     fig.savefig(plot_save_path, bbox_inches="tight")
     print(f"Saved confusion matrix to: {plot_save_path}")
+
+    # append classification metrics to the input file and save it
+    results.append({
+        "classification_metrics": {
+            "classification_report": report,
+            "mean_squared_error": mse,
+            "cohens_kappa": kappa,
+        }
+    })
+    save_json(config.results_path, results)
+
+    # log metrics
+    print(f"MSE: {mse}")
+    print(f"Cohen's kappa: {kappa}")
+
+    print(f"\nSaved results to: {config.results_path}")
 
 if __name__ == "__main__":
     main() 
