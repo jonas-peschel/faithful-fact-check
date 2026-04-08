@@ -240,6 +240,7 @@ def generative_reranking(chunks: List[str], queries: List[str], chunks_metadata:
             top_k=len(chunks), 
             batch_size=BATCH_SIZE,
             sort=False,
+            show_progress=True,
         )
         scores.append([res.score for res in results])
     scores = np.array(scores)
