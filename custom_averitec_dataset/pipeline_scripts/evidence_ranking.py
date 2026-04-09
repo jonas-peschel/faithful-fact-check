@@ -5,10 +5,9 @@ import math
 import numpy as np
 from tqdm.auto import tqdm 
 import torch 
-from transformers import AutoTokenizer, PreTrainedTokenizerFast
+from transformers import AutoTokenizer, PreTrainedTokenizerFast, AutoModel, AutoModelForCausalLM
 from sentence_transformers import SentenceTransformer
 from mxbai_rerank import MxbaiRerankV2
-from sentence_transformers.util import cos_sim
 from sklearn.cluster import DBSCAN
 from utils import load_json, save_json, BM25 
 import nltk 
@@ -171,7 +170,8 @@ def load_and_chunk_evidence(dir: Path, max_chunk_len: int, split_cutoff_len: int
 
     return chunk_texts, infos
 
-def dense_sparse_hybrid_ranking(chunks: List[str], queries: List[str], chunks_metadata: List[Dict], embedding_model: SentenceTransformer, n: int):
+def dense_sparse_hybrid_ranking(chunks: List[str], queries: List[str], chunks_metadata: List[Dict], 
+                                embedding_model: SentenceTransformer, device: str, n: int):
 
     def get_ranking(scores: NDArray):
         sorted_idxs = np.argsort(scores)[::-1].copy()
@@ -180,12 +180,14 @@ def dense_sparse_hybrid_ranking(chunks: List[str], queries: List[str], chunks_me
         return ranking
 
     # 1. semantic similarity based dense retrieval 
+    embedding_model.to(device)
     query_embds = embedding_model.encode(queries, prompt_name="query", batch_size=BATCH_SIZE_EMBEDDING, 
                                          convert_to_tensor=True, show_progress_bar=True)
     chunk_embds = embedding_model.encode(chunks, batch_size=BATCH_SIZE_EMBEDDING, 
                                          convert_to_tensor=True, show_progress_bar=True)
 
-    sim_matrix = cos_sim(query_embds, chunk_embds)
+    sim_matrix = embedding_model.similarity(query_embds, chunk_embds)
+    embedding_model.to("cpu")
     similarities = torch.max(sim_matrix, axis=0).values.cpu().numpy()
 
     # 2. BM25-based sparse retrieval
@@ -207,7 +209,7 @@ def dense_sparse_hybrid_ranking(chunks: List[str], queries: List[str], chunks_me
 
     return top_n_chunks, top_n_chunks_metadata, embds
 
-def remove_duplicates(chunk_embds: torch.Tensor, chunks: List[str], chunks_metadata: List[Dict]):
+def remove_duplicates(chunk_embds: NDArray, chunks: List[str], chunks_metadata: List[Dict]):
     """Remove duplicate chunks with high cosine similarity"""
 
     cluster_alg = DBSCAN(eps = 1-DUPLICATE_COS_SIM, metric = "cosine", min_samples = 2)
@@ -235,21 +237,67 @@ def remove_duplicates(chunk_embds: torch.Tensor, chunks: List[str], chunks_metad
 
     return unique_chunks, unique_chunks_metadata
 
-def generative_reranking(chunks: List[str], queries: List[str], chunks_metadata: List[Dict], reranking_model: MxbaiRerankV2, n: int):
+def generative_reranking(chunks: List[str], queries: List[str], chunks_metadata: List[Dict], 
+                         reranking_model: AutoModelForCausalLM, tokenizer: PreTrainedTokenizerFast, device: str, n: int):
+
+    def format_instruction(instruction, query, doc):
+        if instruction is None:
+            instruction = 'Given a web search query, retrieve relevant passages that answer the query'
+        output = "<Instruct>: {instruction}\n<Query>: {query}\n<Document>: {doc}".format(instruction=instruction,query=query, doc=doc)
+        return output
     
-    scores = []
-    for query in queries:
-        results = reranking_model.rank(
-            query, 
-            chunks, 
-            top_k=len(chunks), 
-            batch_size=BATCH_SIZE_RERANKING,
-            sort=False,
-            show_progress=True,
+    def process_inputs(pairs, model, tokenizer, prefix_tokens, suffix_tokens, max_length):
+        inputs = tokenizer(
+            pairs, padding=False, truncation='longest_first',
+            return_attention_mask=False, max_length=max_length - len(prefix_tokens) - len(suffix_tokens)
         )
-        scores.append([res.score for res in results])
-    scores = np.array(scores)
-    scores = np.max(scores, axis=0)  # max pooling again
+        for i, ele in enumerate(inputs['input_ids']):
+            inputs['input_ids'][i] = prefix_tokens + ele + suffix_tokens
+        inputs = tokenizer.pad(inputs, padding=True, return_tensors="pt", max_length=max_length)
+        for key in inputs:
+            inputs[key] = inputs[key].to(model.device)
+        return inputs
+
+    @torch.no_grad()
+    def compute_logits(inputs, model, token_true_id, token_false_id):
+        batch_scores = model(**inputs).logits[:, -1, :]
+        true_vector = batch_scores[:, token_true_id]
+        false_vector = batch_scores[:, token_false_id]
+        batch_scores = torch.stack([false_vector, true_vector], dim=1)
+        batch_scores = torch.nn.functional.log_softmax(batch_scores, dim=1)
+        scores = batch_scores[:, 1].exp().tolist()
+        return scores
+    
+    def compute_scores(pairs, model, tokenizer, prefix_tokens, suffix_tokens, 
+                       max_length, token_true_id, token_false_id, batch_size):
+        scores = [] 
+        for i in range(0, len(pairs), batch_size):
+            batch_pairs = pairs[i:i+batch_size]
+            inputs = process_inputs(batch_pairs, model, tokenizer, prefix_tokens, suffix_tokens, max_length)
+            scores.extend(compute_logits(inputs, model, token_true_id, token_false_id))
+        return scores
+    
+    token_false_id = tokenizer.convert_tokens_to_ids("no")
+    token_true_id = tokenizer.convert_tokens_to_ids("yes")
+    max_length=8192
+    prefix = "<|im_start|>system\nJudge whether the Document meets the requirements based on the Query and the Instruct provided. Note that the answer can only be \"yes\" or \"no\".<|im_end|>\n<|im_start|>user\n"
+    suffix = "<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
+    prefix_tokens = tokenizer.encode(prefix, add_special_tokens=False)
+    suffix_tokens = tokenizer.encode(suffix, add_special_tokens=False)
+    task = "Given a web search query, retrieve relevant passages that answer the query"
+
+    pairs = []    
+    for query in queries:
+        pairs.extend([format_instruction(task, query, chunk) for chunk in chunks])
+
+    reranking_model.to(device)
+    scores = compute_scores(pairs, reranking_model, tokenizer, prefix_tokens, suffix_tokens,
+                            max_length, token_true_id, token_false_id, batch_size=BATCH_SIZE_RERANKING)
+    reranking_model.to("cpu")
+
+    # max pooling
+    scores = np.array(scores).reshape(len(queries),-1)
+    scores = np.max(scores, axis=0)
 
     # retain only top-n chunks
     top_n_idxs = np.argsort(scores)[::-1][:n].copy()
@@ -271,8 +319,17 @@ def main(config=None):
     # load models
     tokenizer = AutoTokenizer.from_pretrained("THUDM/glm-4-9b-chat", trust_remote_code=True)  # use same tokenizer as in LongCite & SelfCite paper
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    embedding_model = SentenceTransformer("mixedbread-ai/mxbai-embed-large-v1", device=device)
-    reranking_model = MxbaiRerankV2("mixedbread-ai/mxbai-rerank-large-v2")  # device is determined automatically
+    embedding_model = SentenceTransformer(
+        "Qwen/Qwen3-Embedding-8B",
+        model_kwargs={"attn_implementation": "flash_attention_2", "device_map": device, "torch_dtype": torch.float16},
+        tokenizer_kwargs={"padding_side": "left"},
+    )
+    reranking_model = AutoModelForCausalLM.from_pretrained(
+        "Qwen/Qwen3-Reranker-8B", 
+        torch_dtype=torch.float16, 
+        attn_implementation="flash_attention_2",
+    ).eval()
+    reranking_tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen3-Reranker-8B", padding_side='left')
     print(f"DEVICES:\nEmbedding model: {embedding_model.device}\nRe-ranking model: {reranking_model.device}")
 
     for claim_idx, claim_results in tqdm(enumerate(results[config.start_idx:config.end_idx], start=config.start_idx), 
@@ -287,13 +344,13 @@ def main(config=None):
 
         ## 2. Evidence Ranking
         # 2.1 dense-sparse hybrid ranking: BM25 + semantic similarity combined via reciprocal rank fusion
-        top_n1_chunks, chunks_metadata, top_n1_chunk_embds = dense_sparse_hybrid_ranking(chunks, queries, chunks_metadata,  embedding_model, config.n_1)
+        top_n1_chunks, chunks_metadata, top_n1_chunk_embds = dense_sparse_hybrid_ranking(chunks, queries, chunks_metadata,  embedding_model, device, config.n_1)
 
         # # 2.2 de-duplication
         top_chunks, chunks_metadata = remove_duplicates(top_n1_chunk_embds, top_n1_chunks, chunks_metadata) 
 
         # 2.3 generative re-ranking using LLM-based ranking model
-        top_n2_chunks, chunks_metadata = generative_reranking(top_chunks, queries, chunks_metadata, reranking_model, config.n_2)
+        top_n2_chunks, chunks_metadata = generative_reranking(top_chunks, queries, chunks_metadata, reranking_model, reranking_tokenizer, device, config.n_2)
 
         ## save the results
         claim_results["evidences_metadata"] = chunks_metadata
