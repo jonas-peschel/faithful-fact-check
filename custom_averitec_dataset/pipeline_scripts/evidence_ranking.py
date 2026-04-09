@@ -19,7 +19,7 @@ from numpy.typing import NDArray
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Ranking the relevance of retrieved evidence chunks with respect to the individual claims..")
+    parser = argparse.ArgumentParser(description="Ranking the relevance of retrieved evidence chunks with respect to the individual claims.")
     parser.add_argument("--results_path", type=str, default=None, help="Path to the AVeriTeC data file.")
     parser.add_argument("--store_folder", type=str, default="store_folder", help="Folder path with stored web evidence")
     parser.add_argument("--start_idx", type=int, default=0, help="Claim to start with")
@@ -166,6 +166,9 @@ def load_and_chunk_evidence(dir: Path, max_chunk_len, split_cutoff_len):
     # remove all leading and trailing newlines and concatenate all paragraphs per chunk with a single newline
     chunks = [[text.strip("\n ") for text in chunk] for chunk in chunks]
     chunk_texts = ["\n".join(chunk) for chunk in chunks]
+
+    print(f"Successfully loaded {len(chunks)} evidence chunks.")
+
     return chunk_texts, infos
 
 def dense_sparse_hybrid_ranking(chunks: List[str], queries: List[str], chunks_metadata: List[Dict], embedding_model: SentenceTransformer, n: int):
@@ -279,13 +282,13 @@ def main(config=None):
 
         ## 2. Evidence Ranking
         # 2.1 dense-sparse hybrid ranking: BM25 + semantic similarity combined via reciprocal rank fusion
-        top_n1_chunks, chunks_metadata, top_n1_chunk_embds = dense_sparse_hybrid_ranking(chunks, queries, chunks_metadata,  embedding_model, config.n1)
+        top_n1_chunks, chunks_metadata, top_n1_chunk_embds = dense_sparse_hybrid_ranking(chunks, queries, chunks_metadata,  embedding_model, config.n_1)
 
         # 2.2 de-duplication
         top_chunks, chunks_metadata = remove_duplicates(top_n1_chunk_embds, top_n1_chunks, chunks_metadata) 
 
         # 2.3 generative re-ranking using LLM-based ranking model
-        top_n2_chunks, chunks_metadata = generative_reranking(top_chunks, queries, chunks_metadata, reranking_model, config.n2)
+        top_n2_chunks, chunks_metadata = generative_reranking(top_chunks, queries, chunks_metadata, reranking_model, config.n_2)
 
         ## save the results
         claim_results["evidences_metadata"] = chunks_metadata
