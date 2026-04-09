@@ -174,7 +174,7 @@ def load_and_chunk_evidence(dir: Path, max_chunk_len, split_cutoff_len):
 def dense_sparse_hybrid_ranking(chunks: List[str], queries: List[str], chunks_metadata: List[Dict], embedding_model: SentenceTransformer, n: int):
 
     def get_ranking(scores: NDArray):
-        sorted_idxs = np.argsort(scores)[::-1]
+        sorted_idxs = np.argsort(scores)[::-1].copy()
         ranking = np.empty(scores.shape)
         ranking[sorted_idxs] = np.arange(1, scores.shape[0]+1)
         return ranking
@@ -198,7 +198,7 @@ def dense_sparse_hybrid_ranking(chunks: List[str], queries: List[str], chunks_me
     rrf_scores = 1/(rrf_k + dense_ranking) + 1/(rrf_k + sparse_ranking)
 
     # retain only top-n chunks
-    top_n_idxs = np.argsort(rrf_scores)[::-1][:n]
+    top_n_idxs = np.argsort(rrf_scores)[::-1][:n].copy()
     top_n_chunks = [chunks[idx] for idx in top_n_idxs]
     top_n_chunks_metadata = [chunks_metadata[idx] for idx in top_n_idxs]
     embds = chunk_embds[top_n_idxs]
@@ -250,7 +250,7 @@ def generative_reranking(chunks: List[str], queries: List[str], chunks_metadata:
     scores = np.max(scores, axis=0)  # max pooling again
 
     # retain only top-n chunks
-    top_n_idxs = np.argsort(scores)[::-1][:n]
+    top_n_idxs = np.argsort(scores)[::-1][:n].copy()
     top_n_chunks = [chunks[idx] for idx in top_n_idxs]
     top_n_chunks_metadata = [chunks_metadata[idx] for idx in top_n_idxs]
 
