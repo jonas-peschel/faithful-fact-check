@@ -31,7 +31,7 @@ def parse_args():
 MAX_CHUNK_LEN = 600 
 SPLIT_CUTOFF_LEN = 800
 DUPLICATE_COS_SIM = 0.85
-BATCH_SIZE_EMBEDDING = 256
+BATCH_SIZE_EMBEDDING = 64
 BATCH_SIZE_RERANKING = 8
 
 def load_paragraphs(dir: Path, n: int):
@@ -188,6 +188,7 @@ def dense_sparse_hybrid_ranking(chunks: List[str], queries: List[str], chunks_me
 
     sim_matrix = embedding_model.similarity(query_embds, chunk_embds)
     embedding_model.to("cpu")
+    torch.cuda.empty_cache()
     similarities = torch.max(sim_matrix, axis=0).values.cpu().numpy()
 
     # 2. BM25-based sparse retrieval
@@ -294,6 +295,7 @@ def generative_reranking(chunks: List[str], queries: List[str], chunks_metadata:
     scores = compute_scores(pairs, reranking_model, tokenizer, prefix_tokens, suffix_tokens,
                             max_length, token_true_id, token_false_id, batch_size=BATCH_SIZE_RERANKING)
     reranking_model.to("cpu")
+    torch.cuda.empty_cache()
 
     # max pooling
     scores = np.array(scores).reshape(len(queries),-1)
