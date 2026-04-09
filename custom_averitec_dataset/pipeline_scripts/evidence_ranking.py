@@ -33,7 +33,7 @@ MAX_CHUNK_LEN = 600
 SPLIT_CUTOFF_LEN = 800
 DUPLICATE_COS_SIM = 0.85
 BATCH_SIZE_EMBEDDING = 256
-BATCH_SIZE_RERANKING = 16
+BATCH_SIZE_RERANKING = 8
 
 def load_paragraphs(dir: Path, n: int):
     """
@@ -182,18 +182,15 @@ def dense_sparse_hybrid_ranking(chunks: List[str], queries: List[str], chunks_me
     # 1. semantic similarity based dense retrieval 
     query_embds = embedding_model.encode(queries, prompt_name="query", batch_size=BATCH_SIZE_EMBEDDING, 
                                          convert_to_tensor=True, show_progress_bar=True)
-    chunk_embds = embedding_model.encode(chunks, convert_to_tensor=True)
+    chunk_embds = embedding_model.encode(chunks, batch_size=BATCH_SIZE_EMBEDDING, 
+                                         convert_to_tensor=True, show_progress_bar=True)
 
     sim_matrix = cos_sim(query_embds, chunk_embds)
     similarities = torch.max(sim_matrix, axis=0).values.cpu().numpy()
 
-    print("Finished dense retrieval")
-
     # 2. BM25-based sparse retrieval
     bm25 = BM25(chunks)
     scores = bm25.get_scores(queries)
-
-    print("Finished BM25-based sparse retrieval")
 
     # 3. combine dense and sparse similarities using RRF
     dense_ranking = get_ranking(similarities)
@@ -207,8 +204,6 @@ def dense_sparse_hybrid_ranking(chunks: List[str], queries: List[str], chunks_me
     top_n_chunks = [chunks[idx] for idx in top_n_idxs]
     top_n_chunks_metadata = [chunks_metadata[idx] for idx in top_n_idxs]
     embds = chunk_embds[top_n_idxs].cpu().numpy()
-
-    print(f"Finished hybrid ranking")
 
     return top_n_chunks, top_n_chunks_metadata, embds
 
@@ -296,7 +291,6 @@ def main(config=None):
 
         # # 2.2 de-duplication
         top_chunks, chunks_metadata = remove_duplicates(top_n1_chunk_embds, top_n1_chunks, chunks_metadata) 
-        # top_chunks = top_n1_chunks  # test skipping de-duplication
 
         # 2.3 generative re-ranking using LLM-based ranking model
         top_n2_chunks, chunks_metadata = generative_reranking(top_chunks, queries, chunks_metadata, reranking_model, config.n_2)
