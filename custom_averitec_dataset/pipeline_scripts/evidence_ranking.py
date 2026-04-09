@@ -5,7 +5,7 @@ import math
 import numpy as np
 from tqdm.auto import tqdm 
 import torch 
-from transformers import AutoTokenizer
+from transformers import AutoTokenizer, PreTrainedTokenizerFast
 from sentence_transformers import SentenceTransformer
 from mxbai_rerank import MxbaiRerankV2
 from sentence_transformers.util import cos_sim
@@ -47,7 +47,7 @@ def load_paragraphs(dir: Path, n: int):
             paragraphs.append(content.split("\n\n"))
     return paragraphs
 
-def load_and_chunk_evidence(dir: Path, max_chunk_len, split_cutoff_len):
+def load_and_chunk_evidence(dir: Path, max_chunk_len: int, split_cutoff_len: int, tokenizer: PreTrainedTokenizerFast):
 
     def split_sentence(sent, length):
 
@@ -114,7 +114,6 @@ def load_and_chunk_evidence(dir: Path, max_chunk_len, split_cutoff_len):
     paragraphs = load_paragraphs(dir, len(search_infos))
 
     # count lengths of the paragraphs
-    tokenizer = AutoTokenizer.from_pretrained("THUDM/glm-4-9b-chat", trust_remote_code=True)  # use same tokenizer as in LongCite & SelfCite paper
     lengths = []
     for ps_doc in paragraphs:
         paragraph_ids = tokenizer(ps_doc, add_special_tokens=False)["input_ids"]
@@ -267,6 +266,7 @@ def main(config=None):
     web_evidence_folder = Path(config.store_folder)
 
     # load models
+    tokenizer = AutoTokenizer.from_pretrained("THUDM/glm-4-9b-chat", trust_remote_code=True)  # use same tokenizer as in LongCite & SelfCite paper
     device = "cuda" if torch.cuda.is_available() else "cpu"
     embedding_model = SentenceTransformer("mixedbread-ai/mxbai-embed-large-v1", device=device)
     reranking_model = MxbaiRerankV2("mixedbread-ai/mxbai-rerank-large-v2")  # device is determined automatically
@@ -277,7 +277,8 @@ def main(config=None):
         web_evidence_claim_folder =  web_evidence_folder / f"claim_{claim_idx}"
 
         ## 1. split the retrieved web evidence content into chunks of about 500-800 tokens (preserving paragraphs when possible)
-        chunks, chunks_metadata = load_and_chunk_evidence(web_evidence_claim_folder, max_chunk_len=MAX_CHUNK_LEN, split_cutoff_len=SPLIT_CUTOFF_LEN)
+        chunks, chunks_metadata = load_and_chunk_evidence(web_evidence_claim_folder, max_chunk_len=MAX_CHUNK_LEN, 
+                                                          split_cutoff_len=SPLIT_CUTOFF_LEN, tokenizer=tokenizer)
         queries = list(set([d["search_string"] for d in chunks_metadata]))
 
         ## 2. Evidence Ranking
