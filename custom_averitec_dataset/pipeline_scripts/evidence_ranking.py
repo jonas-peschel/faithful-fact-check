@@ -288,9 +288,9 @@ def main(config=None):
         top_n2_chunks, chunks_metadata = generative_reranking(top_chunks, queries, chunks_metadata, reranking_model, config.n2)
 
         ## save the results
-        # TODO
-
-        
+        claim_results["evidences_metadata"] = chunks_metadata
+        claim_results["evidences_content"] = top_n2_chunks
+        save_json(config.results_path, results) 
 
 if __name__ == "__main__":
     main()
