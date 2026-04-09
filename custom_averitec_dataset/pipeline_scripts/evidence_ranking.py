@@ -32,7 +32,8 @@ def parse_args():
 MAX_CHUNK_LEN = 600 
 SPLIT_CUTOFF_LEN = 800
 DUPLICATE_COS_SIM = 0.85
-BATCH_SIZE = 64
+BATCH_SIZE_EMBEDDING = 256
+BATCH_SIZE_RERANKING = 16
 
 def load_paragraphs(dir: Path, n: int):
     """
@@ -179,15 +180,20 @@ def dense_sparse_hybrid_ranking(chunks: List[str], queries: List[str], chunks_me
         return ranking
 
     # 1. semantic similarity based dense retrieval 
-    query_embds = embedding_model.encode(queries, prompt_name="query", convert_to_tensor=True)
+    query_embds = embedding_model.encode(queries, prompt_name="query", batch_size=BATCH_SIZE_EMBEDDING, 
+                                         convert_to_tensor=True, show_progress_bar=True)
     chunk_embds = embedding_model.encode(chunks, convert_to_tensor=True)
 
     sim_matrix = cos_sim(query_embds, chunk_embds)
     similarities = torch.max(sim_matrix, axis=0).values.cpu().numpy()
 
+    print("Finished dense retrieval")
+
     # 2. BM25-based sparse retrieval
     bm25 = BM25(chunks)
     scores = bm25.get_scores(queries)
+
+    print("Finished BM25-based sparse retrieval")
 
     # 3. combine dense and sparse similarities using RRF
     dense_ranking = get_ranking(similarities)
@@ -201,6 +207,8 @@ def dense_sparse_hybrid_ranking(chunks: List[str], queries: List[str], chunks_me
     top_n_chunks = [chunks[idx] for idx in top_n_idxs]
     top_n_chunks_metadata = [chunks_metadata[idx] for idx in top_n_idxs]
     embds = chunk_embds[top_n_idxs].cpu().numpy()
+
+    print(f"Finished hybrid ranking")
 
     return top_n_chunks, top_n_chunks_metadata, embds
 
@@ -240,7 +248,7 @@ def generative_reranking(chunks: List[str], queries: List[str], chunks_metadata:
             query, 
             chunks, 
             top_k=len(chunks), 
-            batch_size=BATCH_SIZE,
+            batch_size=BATCH_SIZE_RERANKING,
             sort=False,
             show_progress=True,
         )
@@ -270,6 +278,7 @@ def main(config=None):
     device = "cuda" if torch.cuda.is_available() else "cpu"
     embedding_model = SentenceTransformer("mixedbread-ai/mxbai-embed-large-v1", device=device)
     reranking_model = MxbaiRerankV2("mixedbread-ai/mxbai-rerank-large-v2")  # device is determined automatically
+    print(f"DEVICES:\nEmbedding model: {embedding_model.device}\nRe-ranking model: {reranking_model.device}")
 
     for claim_idx, claim_results in tqdm(enumerate(results[config.start_idx:config.end_idx], start=config.start_idx), 
                                    desc="Claims", total=len(results[config.start_idx:config.end_idx])):
@@ -285,8 +294,9 @@ def main(config=None):
         # 2.1 dense-sparse hybrid ranking: BM25 + semantic similarity combined via reciprocal rank fusion
         top_n1_chunks, chunks_metadata, top_n1_chunk_embds = dense_sparse_hybrid_ranking(chunks, queries, chunks_metadata,  embedding_model, config.n_1)
 
-        # 2.2 de-duplication
+        # # 2.2 de-duplication
         top_chunks, chunks_metadata = remove_duplicates(top_n1_chunk_embds, top_n1_chunks, chunks_metadata) 
+        # top_chunks = top_n1_chunks  # test skipping de-duplication
 
         # 2.3 generative re-ranking using LLM-based ranking model
         top_n2_chunks, chunks_metadata = generative_reranking(top_chunks, queries, chunks_metadata, reranking_model, config.n_2)
