@@ -17,7 +17,6 @@ nltk.download("punkt_tab")
 from typing import List, Dict
 from numpy.typing import NDArray
 
-
 def parse_args():
     parser = argparse.ArgumentParser(description="Ranking the relevance of retrieved evidence chunks with respect to the individual claims.")
     parser.add_argument("--results_path", type=str, default=None, help="Path to the AVeriTeC data file.")
@@ -32,7 +31,7 @@ def parse_args():
 MAX_CHUNK_LEN = 600 
 SPLIT_CUTOFF_LEN = 800
 DUPLICATE_COS_SIM = 0.85
-BATCH_SIZE_EMBEDDING = 512
+BATCH_SIZE_EMBEDDING = 256
 BATCH_SIZE_RERANKING = 8
 
 def load_paragraphs(dir: Path, n: int):
