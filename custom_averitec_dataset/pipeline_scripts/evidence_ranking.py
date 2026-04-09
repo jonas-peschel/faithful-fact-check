@@ -201,7 +201,7 @@ def dense_sparse_hybrid_ranking(chunks: List[str], queries: List[str], chunks_me
     top_n_idxs = np.argsort(rrf_scores)[::-1][:n].copy()
     top_n_chunks = [chunks[idx] for idx in top_n_idxs]
     top_n_chunks_metadata = [chunks_metadata[idx] for idx in top_n_idxs]
-    embds = chunk_embds[top_n_idxs]
+    embds = chunk_embds[top_n_idxs].cpu().numpy()
 
     return top_n_chunks, top_n_chunks_metadata, embds
 
