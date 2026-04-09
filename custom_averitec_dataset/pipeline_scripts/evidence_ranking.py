@@ -32,7 +32,7 @@ def parse_args():
 MAX_CHUNK_LEN = 600 
 SPLIT_CUTOFF_LEN = 800
 DUPLICATE_COS_SIM = 0.85
-BATCH_SIZE = 8
+BATCH_SIZE = 64
 
 def load_paragraphs(dir: Path, n: int):
     """
