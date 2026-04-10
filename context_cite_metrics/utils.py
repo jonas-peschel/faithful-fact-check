@@ -75,9 +75,12 @@ def load_data(dataset_name, n_samples=-1, start_idx=0, seed=0):
         # use only instances where the context is not extremly short (at least 5 sentences), otherwise the LDS score will probably be quite biased
         dataset = dataset.filter(lambda example: len(sent_tokenize(example["evidence"])) >= 5)
 
-    # Dataset 3: AVeriTeC with ground truth evidence
+    # Dataset 3: AVeriTeC with ground truth or retrieved web evidence
     if dataset_name == "averitec" or dataset_name == "averitec_short_ans":
         dataset = load_dataset("jonaspeschel/AVeriTeC-with-scraped-gold-evidence", split="train")
+
+    if dataset_name == "averitec_web_evidence" or dataset_name == "averitec_web_evidence_short_ans":
+        dataset = load_dataset("jonaspeschel/AVeriTeC-with-scraped-web-evidence", split="train")
 
     # Dataset 4: MultiFieldQA-en
     if dataset_name == "multifieldqa_en":
@@ -133,6 +136,21 @@ def load_datapoint(datapoint, dataset_name, use_longcite):
         query = "You are an expert fact-checker. You are provided with a claim and related evidence. Based only on the provided evidence, determine if the given claim is either supported, refuted, has conflicting evidence, or has not enough evidence to determine its veracity. Write a single sentence that states your verdict and the main reason for it, referencing and synthesizing the most relevant pieces of evidence that support your verdict. Do not copy sentences from the evidence verbatim. Always paraphrase and synthesize the evidence in your own words."
         query += f"\n\nClaim: {datapoint["claim"]}"
 
+    if dataset_name == "averitec_web_evidence": 
+        context = "\n\n".join(datapoint["evidences_content"])
+
+        # fact-checking query + claim
+        query = "You are an expert fact-checker. You are provided with a claim and related evidence. Based only on the provided evidence, determine if the given claim is either supported, refuted, has conflicting evidence, or has not enough evidence to determine its veracity. Write a paragraph of about 4-6 sentences that states your verdict and the main reason for it, referencing and synthesizing the most relevant pieces of evidence that support your verdict. Do not copy sentences from the evidence verbatim. Always paraphrase and synthesize the evidence in your own words."
+        query += f"\n\nClaim: {datapoint["claim"]}"
+         
+    if dataset_name == "averitec_web_evidence_short_ans":
+        context = "\n\n".join(datapoint["evidences_content"])
+
+        ## fact-checking query + claim
+        # short length prompt
+        query = "You are an expert fact-checker. You are provided with a claim and related evidence. Based only on the provided evidence, determine if the given claim is either supported, refuted, has conflicting evidence, or has not enough evidence to determine its veracity. Write a single sentence that states your verdict and the main reason for it, referencing and synthesizing the most relevant pieces of evidence that support your verdict. Do not copy sentences from the evidence verbatim. Always paraphrase and synthesize the evidence in your own words."
+        query += f"\n\nClaim: {datapoint["claim"]}"
+
     # Dataset 4: MultiFieldQA-en
     if dataset_name == "multifieldqa_en":
         context = datapoint["context"]
@@ -151,7 +169,8 @@ def load_cc_prompt_template(dataset_name):
         return "Query: {query}\n\nEvidence: {context}"
 
     # Dataset 3: AVeriTeC
-    if dataset_name == "averitec" or dataset_name == "averitec_short_ans":
+    if (dataset_name == "averitec" or dataset_name == "averitec_short_ans" 
+        or dataset_name == "averitec_web_evidence" or dataset_name == "averitec_web_evidence_short_ans"):
         return "Query: {query}\n\nEvidence: {context}"
     
     # Dataset 4: MultiFieldQA-en
