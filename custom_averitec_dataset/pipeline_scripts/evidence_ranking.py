@@ -23,7 +23,7 @@ def parse_args():
     parser.add_argument("--store_folder", type=str, default="store_folder", help="Folder path with stored web evidence")
     parser.add_argument("--start_idx", type=int, default=0, help="Claim to start with")
     parser.add_argument("--end_idx", type=int, default=None, help="Claim to end with")
-    parser.add_argument("--n_1", type=int, default=50, help="Number of documents to keep after first dense-sparse hybrid ranking step")
+    parser.add_argument("--n_1", type=int, default=200, help="Number of documents to keep after first dense-sparse hybrid ranking step")
     parser.add_argument("--n_2", type=int, default=10, help="Number of documents to keep after second generative re-ranking step")
 
     return parser.parse_args()
