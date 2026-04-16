@@ -2,10 +2,9 @@ import argparse
 import numpy as np
 from typing import List 
 from transformers import AutoTokenizer
-from context_cite import ContextCiter
 from context_cite.context_partitioner import SimpleContextPartitioner, BaseContextPartitioner
-from utils import load_json, save_json, load_data, load_datapoint, load_cc_prompt_template, CC_GENERATE_KWARGS
-from longcite_utils import LongCiteContextCiter, LongCiteContextPartitioner, LONGCITE_GENERATE_KWARGS, LONGCITE_PROMPT_TEMPLATE
+from utils import load_json, save_json, load_data, load_datapoint
+from longcite_utils import LongCiteContextPartitioner
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Utils script for formatting the ContextCite metrics results (for single model and attribution method but for possibly multiple datasets) for citation & correctness evaluation.")
@@ -74,24 +73,11 @@ def format_results(results_paths, attr_method, use_longcite, save_file_name):
         tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
         tokenizer.padding_side = "left" # set padding side to left for batch inference with ContextCite
         tokenizer.pad_token_id = tokenizer.eos_token_id
-        PROMPT_TEMPLATE = LONGCITE_PROMPT_TEMPLATE if use_longcite else load_cc_prompt_template(dataset)  # LongCite prompt template is not actually used
-        GENERATE_KWARGS = LONGCITE_GENERATE_KWARGS if use_longcite else CC_GENERATE_KWARGS
 
         for data_point_results, data_point in zip(results["results"], data):
             idx = data_point_results["instance_idx"]
             context, query = load_datapoint(data_point, dataset, use_longcite) # depends on the given dataset
             partitioner = LongCiteContextPartitioner(context=context) if use_longcite else SimpleContextPartitioner(context=context)
-
-            cc_kwargs = {
-                "model": None,  # don't need model inference here
-                "tokenizer": tokenizer,
-                "context": context,
-                "query": query,
-                "prompt_template": PROMPT_TEMPLATE,
-                "generate_kwargs": GENERATE_KWARGS,
-                "partitioner": partitioner,
-            }
-            cc = LongCiteContextCiter(**cc_kwargs) if use_longcite else ContextCiter(**cc_kwargs)
 
             formatted_data_point_result = {
                 "idx": idx,
