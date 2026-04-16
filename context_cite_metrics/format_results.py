@@ -1,7 +1,6 @@
 import argparse
 import numpy as np
 from typing import List 
-from transformers import AutoTokenizer
 from context_cite.context_partitioner import SimpleContextPartitioner, BaseContextPartitioner
 from utils import load_json, save_json, load_data, load_datapoint
 from longcite_utils import LongCiteContextPartitioner
@@ -70,9 +69,6 @@ def format_results(results_paths, attr_method, use_longcite, save_file_name):
         model_name = results["metadata"]["model"]
         n_samples = len(results["results"])
         data = load_data(dataset_name=dataset, n_samples=n_samples, start_idx=0)
-        tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
-        tokenizer.padding_side = "left" # set padding side to left for batch inference with ContextCite
-        tokenizer.pad_token_id = tokenizer.eos_token_id
 
         for data_point_results, data_point in zip(results["results"], data):
             idx = data_point_results["instance_idx"]
