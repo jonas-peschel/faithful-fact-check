@@ -18,6 +18,8 @@ def parse_args():
     parser.add_argument("--use_longcite", action="store_true", help="Whether to use ContextPartitioner from LongCite model.")
     parser.add_argument("--attr_methods", type=str, nargs="+", choices=["context_cite_32", "context_cite_64", "context_cite_128", "context_cite_256", "semantic_similarity", "leave_one_out", "nli_post_hoc_naive", "nli_post_hoc_sliding_window_3", "nli_post_hoc_sliding_window_5", "nli_post_hoc_greedy_sampling", "llm_post_hoc", "longcite_llm_direct"], help="Which attribution method to use.")
     parser.add_argument("--model", type=str, choices=["Llama-3.1-8B-Instruct", "DeepSeek"])
+    parser.add_argument("--start_idx", type=int, default=0, help="Claim to start with")
+    parser.add_argument("--end_idx", type=int, default=None, help="Claim to end with")
     return parser.parse_args()
 
 CLASS_NAMES = ["Supported", "Conflicting Evidence/Cherrypicking", "Refuted"]
@@ -202,7 +204,8 @@ def main(config=None):
         assert verification_results["metadata"]["dataset"] == dataset, "Existing results should come from the same dataset as new results to compute."
         assert verification_results["metadata"]["model"] == model_name, "Existing results should use the same model as new results to compute."
 
-    for data_point_metrics_results, data_point in tqdm(zip(metrics_results["results"], data), total=len(data), desc="Claims"):
+    for data_point_metrics_results, data_point in tqdm(zip(metrics_results["results"][config.start_idx:config.end_idx], data[config.start_idx:config.end_idx]), 
+                                                       total=len(data[config.start_idx:config.end_idx]), desc="Claims", start=config.start_idx):
 
         idx = data_point_metrics_results["instance_idx"]
         idxs = np.array([res["instance_idx"] for res in verification_results["results"]])  # indices for already computed results
