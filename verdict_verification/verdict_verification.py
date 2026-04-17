@@ -165,7 +165,7 @@ def main(config=None):
     metrics_results = load_json(config.metrics_results_path)
     dataset = metrics_results["metadata"]["dataset"]
     n_samples = len(metrics_results["results"])
-    data = load_data(dataset_name=dataset, n_samples=n_samples, start_idx=0)
+    data = load_data(dataset_name=dataset, n_samples=n_samples, start_idx=0).select(range(config.start_idx, config.end_idx)).to_list()
 
     if config.model == "Llama-3.1-8B-Instruct":
         # load model
@@ -204,8 +204,8 @@ def main(config=None):
         assert verification_results["metadata"]["dataset"] == dataset, "Existing results should come from the same dataset as new results to compute."
         assert verification_results["metadata"]["model"] == model_name, "Existing results should use the same model as new results to compute."
 
-    for data_point_metrics_results, data_point in tqdm(zip(metrics_results["results"][config.start_idx:config.end_idx], data[config.start_idx:config.end_idx]), 
-                                                       total=len(data[config.start_idx:config.end_idx]), desc="Claims"):
+    for data_point_metrics_results, data_point in tqdm(zip(metrics_results["results"][config.start_idx:config.end_idx], data), 
+                                                       total=len(data), desc="Claims"):
 
         idx = data_point_metrics_results["instance_idx"]
         idxs = np.array([res["instance_idx"] for res in verification_results["results"]])  # indices for already computed results
