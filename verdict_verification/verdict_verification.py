@@ -15,6 +15,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Experiment for verdict verification using pruned context.")
     parser.add_argument("--metrics_results_path", type=str, help="Path to the file where attribution scores and experiment results (metrics) are stored.")
     parser.add_argument("--verification_results_path", type=str, help="Path to the file where verdict verification experiment results are stored.")
+    parser.add_argument("--pred_labels_results_path", type=str, help="Path to the file where the originally predicted verdicts are stored.")
     parser.add_argument("--use_longcite", action="store_true", help="Whether to use ContextPartitioner from LongCite model.")
     parser.add_argument("--attr_methods", type=str, nargs="+", choices=["context_cite_32", "context_cite_64", "context_cite_128", "context_cite_256", "semantic_similarity", "leave_one_out", "nli_post_hoc_naive", "nli_post_hoc_sliding_window_3", "nli_post_hoc_sliding_window_5", "nli_post_hoc_greedy_sampling", "llm_post_hoc", "longcite_llm_direct"], help="Which attribution method to use.")
     parser.add_argument("--model", type=str, choices=["Llama-3.1-8B-Instruct", "DeepSeek"])
@@ -146,10 +147,10 @@ def build_evidence_context(citations: List[int], partitioner: BaseContextPartiti
 
     return "\n\n".join(evidence_snippets)
 
-def get_prompts(claim: str, label: str, evidence: str):
+def get_prompts(claim: str, pred_label: str, evidence: str):
 
     sys_prompt = "You are an expert fact-checker. You are provided with a claim, a verdict for the claim's veracity from another fact-checker, and corresponding evidence snippets that were used to arrive at the given verdict. Based only on the provided evidence snippets, verify the verdict from the other fact-checker by classifying the veracity of the given claim yourself, i.e., classify whether the claim is supported, refuted, or has conflicting evidence. Answer only with exactly one of the three possible classes: 'Supported', 'Conflicting Evidence', 'Refuted'. You can repeat the original verdict from the other fact-checker if you find it trustworthy and you think the verdict aligns with the provided evidence snippets. Otherwise you can provide a different verdict that you find more suitable given the evidence snippets. IMPORTANT: Do not respond with any additional text and use only the provided evidence snippets to come up with your answer. Do not use your own knowledge or any other external sources than the ones provided."
-    user_prompt = f"Verify the verdict from the other fact-checker for the following claim using the provided evidence snippets.\nClaim: {claim}\nVerdict from the other fact-checker: {label}\n\nEvidence snippets:\n{evidence}\n\nYour own verdict:"
+    user_prompt = f"Verify the verdict from the other fact-checker for the following claim using the provided evidence snippets.\nClaim: {claim}\nVerdict from the other fact-checker: {pred_label}\n\nEvidence snippets:\n{evidence}\n\nYour own verdict:"
 
     return sys_prompt, user_prompt
 
@@ -166,6 +167,8 @@ def main(config=None):
     dataset = metrics_results["metadata"]["dataset"]
     n_samples = len(metrics_results["results"])
     data = load_data(dataset_name=dataset, n_samples=n_samples, start_idx=0).select(range(config.start_idx, config.end_idx)).to_list()
+    pred_labels_results = load_json(config.pred_labels_results_path)[:-1]
+    pred_labels = [res["pred_label"] for res in pred_labels_results]
 
     if config.model == "Llama-3.1-8B-Instruct":
         # load model
@@ -204,8 +207,8 @@ def main(config=None):
         assert verification_results["metadata"]["dataset"] == dataset, "Existing results should come from the same dataset as new results to compute."
         assert verification_results["metadata"]["model"] == model_name, "Existing results should use the same model as new results to compute."
 
-    for data_point_metrics_results, data_point in tqdm(zip(metrics_results["results"][config.start_idx:config.end_idx], data), 
-                                                       total=len(data), desc="Claims"):
+    for data_point_metrics_results, data_point, pred_label in tqdm(zip(metrics_results["results"][config.start_idx:config.end_idx], data, 
+                                                                       pred_labels[config.start_idx:config.end_idx]), total=len(data), desc="Claims"):
 
         idx = data_point_metrics_results["instance_idx"]
         idxs = np.array([res["instance_idx"] for res in verification_results["results"]])  # indices for already computed results
@@ -246,7 +249,7 @@ def main(config=None):
                     evidence = build_evidence_context(citations, partitioner)
 
                 # get prompts & perform model inference
-                sys_prompt, user_prompt = get_prompts(claim, label, evidence)
+                sys_prompt, user_prompt = get_prompts(claim, pred_label, evidence)
 
                 if model_name == "meta-llama/Llama-3.1-8B-Instruct":
                     response = query_hf_model(model, tokenizer, device, sys_prompt, user_prompt)
