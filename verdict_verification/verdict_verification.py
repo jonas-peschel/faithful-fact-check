@@ -146,10 +146,10 @@ def build_evidence_context(citations: List[int], partitioner: BaseContextPartiti
 
     return "\n\n".join(evidence_snippets)
 
-def get_prompts(claim: str, evidence: str):
+def get_prompts(claim: str, label: str, evidence: str):
 
-    sys_prompt = "You are an expert fact-checker. You are provided with a claim and corresponding evidence snippets. Based only on the provided evidence snippets, classify the veracity of the given claim, i.e., whether the claim is supported, refuted, or has conflicting evidence. Answer only with exactly one of the three possible classes: 'Supported', 'Conflicting Evidence', 'Refuted'. IMPORTANT: Do not respond with any additional text and use only the provided evidence snippets to come up with your answer. Do not use your own knowledge or any other external sources than the ones provided."
-    user_prompt = f"Classify the veracity of the following claim using the provided evidence.\nClaim: {claim}\n\nEvidence snippets:\n{evidence}"
+    sys_prompt = "You are an expert fact-checker. You are provided with a claim, a verdict for the claim's veracity from another fact-checker, and corresponding evidence snippets that were used to arrive at the given verdict. Based only on the provided evidence snippets, verify the verdict from the other fact-checker by classifying the veracity of the given claim yourself, i.e., classify whether the claim is supported, refuted, or has conflicting evidence. Answer only with exactly one of the three possible classes: 'Supported', 'Conflicting Evidence', 'Refuted'. You can repeat the original verdict from the other fact-checker if you find it trustworthy and you think the verdict aligns with the provided evidence snippets. Otherwise you can provide a different verdict that you find more suitable given the evidence snippets. IMPORTANT: Do not respond with any additional text and use only the provided evidence snippets to come up with your answer. Do not use your own knowledge or any other external sources than the ones provided."
+    user_prompt = f"Verify the verdict from the other fact-checker for the following claim using the provided evidence snippets.\nClaim: {claim}\nVerdict from the other fact-checker: {label}\n\nEvidence snippets:\n{evidence}\n\nYour own verdict:"
 
     return sys_prompt, user_prompt
 
@@ -246,7 +246,7 @@ def main(config=None):
                     evidence = build_evidence_context(citations, partitioner)
 
                 # get prompts & perform model inference
-                sys_prompt, user_prompt = get_prompts(claim, evidence)
+                sys_prompt, user_prompt = get_prompts(claim, label, evidence)
 
                 if model_name == "meta-llama/Llama-3.1-8B-Instruct":
                     response = query_hf_model(model, tokenizer, device, sys_prompt, user_prompt)
