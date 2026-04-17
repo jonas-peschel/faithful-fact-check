@@ -108,6 +108,9 @@ def main(config=None):
 
     for data_point_results in tqdm(results):
 
+        if data_point_results.get("pred_label"):
+            continue
+
         claim = data_point_results["claim"]
         model_answer = parse_plain_answer_text(data_point_results["prediction"])
         LABEL_NAMES = get_label_names(dataset_name)
