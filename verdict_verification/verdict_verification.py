@@ -205,7 +205,7 @@ def main(config=None):
         assert verification_results["metadata"]["model"] == model_name, "Existing results should use the same model as new results to compute."
 
     for data_point_metrics_results, data_point in tqdm(zip(metrics_results["results"][config.start_idx:config.end_idx], data[config.start_idx:config.end_idx]), 
-                                                       total=len(data[config.start_idx:config.end_idx]), desc="Claims", start=config.start_idx):
+                                                       total=len(data[config.start_idx:config.end_idx]), desc="Claims"):
 
         idx = data_point_metrics_results["instance_idx"]
         idxs = np.array([res["instance_idx"] for res in verification_results["results"]])  # indices for already computed results
