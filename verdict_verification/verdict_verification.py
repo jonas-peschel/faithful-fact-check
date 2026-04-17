@@ -16,7 +16,7 @@ def parse_args():
     parser.add_argument("--metrics_results_path", type=str, help="Path to the file where attribution scores and experiment results (metrics) are stored.")
     parser.add_argument("--verification_results_path", type=str, help="Path to the file where verdict verification experiment results are stored.")
     parser.add_argument("--use_longcite", action="store_true", help="Whether to use ContextPartitioner from LongCite model.")
-    parser.add_argument("--attr_method", type=str, choices=["context_cite_32", "context_cite_64", "context_cite_128", "context_cite_256", "semantic_similarity", "leave_one_out", "nli_post_hoc_naive", "nli_post_hoc_sliding_window_3", "nli_post_hoc_sliding_window_5", "nli_post_hoc_greedy_sampling", "llm_post_hoc", "longcite_llm_direct"], help="Which attribution method to use.")
+    parser.add_argument("--attr_methods", type=str, nargs="+", choices=["context_cite_32", "context_cite_64", "context_cite_128", "context_cite_256", "semantic_similarity", "leave_one_out", "nli_post_hoc_naive", "nli_post_hoc_sliding_window_3", "nli_post_hoc_sliding_window_5", "nli_post_hoc_greedy_sampling", "llm_post_hoc", "longcite_llm_direct"], help="Which attribution method to use.")
     parser.add_argument("--model", type=str, choices=["Llama-3.1-8B-Instruct", "DeepSeek"])
     return parser.parse_args()
 
@@ -232,28 +232,30 @@ def main(config=None):
             "ground_truth": y_gt
         }
 
-        for k in ks:
-            if k == "all":
-                evidence = partitioner.get_context()
-            elif k == "cite":
-                # use discrete citations to give as context
-                citations = data_point_metrics_results["methods"][config.attr_method]["citations"]
-                evidence = build_evidence_context(citations, partitioner)
+        for attr_method in config.attr_methods:
+            data_point_verification_results["class_distributions"][attr_method] = {}
+            for k in ks:
+                if k == "all":
+                    evidence = partitioner.get_context()
+                elif k == "cite":
+                    # use discrete citations to give as context
+                    citations = data_point_metrics_results["methods"][attr_method]["citations"]
+                    evidence = build_evidence_context(citations, partitioner)
 
-            # get prompts & perform model inference
-            sys_prompt, user_prompt = get_prompts(claim, evidence)
+                # get prompts & perform model inference
+                sys_prompt, user_prompt = get_prompts(claim, evidence)
 
-            if model_name == "meta-llama/Llama-3.1-8B-Instruct":
-                response = query_hf_model(model, tokenizer, device, sys_prompt, user_prompt)
-                y_preds = get_pred_distribution_hf_model(response, label_ids)
-            elif model_name == "deepseek-chat":
-                # TODO
-                response = query_api_model(...)
+                if model_name == "meta-llama/Llama-3.1-8B-Instruct":
+                    response = query_hf_model(model, tokenizer, device, sys_prompt, user_prompt)
+                    y_preds = get_pred_distribution_hf_model(response, label_ids)
+                elif model_name == "deepseek-chat":
+                    # TODO
+                    response = query_api_model(...)
 
-            # save the results (i.e., the predicted distribution)
-            data_point_verification_results["class_distributions"][f"k={k}"] = y_preds.tolist()
+                # save the results (i.e., the predicted distribution)
+                data_point_verification_results["class_distributions"][attr_method][f"k={k}"] = y_preds.tolist()
 
-        # save every iteration
+        # save every claim
         save_json(config.verification_results_path, verification_results)
 
 if __name__ == "__main__": 
