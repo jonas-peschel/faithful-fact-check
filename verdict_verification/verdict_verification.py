@@ -81,10 +81,15 @@ def query_hf_model(model, tokenizer, device, sys_prompt, user_prompt):
 
 def get_label_ids_hf_model(tokenizer):
 
-    label_ids = []
+    verdict_label_ids = []
     for label in CLASS_NAMES:
-        label_ids.append(tokenizer.encode(label, add_special_tokens=False)[0])
-    return label_ids 
+        verdict_label_ids.append(tokenizer.encode(label, add_special_tokens=False)[0])
+
+    abst_label_ids = []
+    for label in ["yes", "no"]:
+        abst_label_ids.append(tokenizer.encode(label, add_special_tokens=False)[0])
+
+    return verdict_label_ids, abst_label_ids
 
 def get_pred_distribution_hf_model(response, label_ids: List):
 
@@ -147,10 +152,19 @@ def build_evidence_context(citations: List[int], partitioner: BaseContextPartiti
 
     return "\n\n".join(evidence_snippets)
 
-def get_prompts(claim: str, pred_label: str, evidence: str):
+def get_verification_prompts(claim: str, pred_label: str, evidence: str):
+    if pred_label != "Not Enough Evidence":
+        sys_prompt = "You are an expert fact-checker. You are provided with a claim, a verdict for the claim's veracity from another fact-checker, and corresponding evidence snippets that were used to arrive at the given verdict. Based only on the provided evidence snippets, verify the verdict from the other fact-checker by classifying the veracity of the given claim yourself and by assessing whether you agree or disagree with the given verdict. You must classify the claim by reasoning about whether the claim is supported, refuted, or has conflicting evidence. Answer only with exactly one of the three possible verdicts: 'Supported', 'Conflicting Evidence', 'Refuted'. The verdicts have the following meanings:\nSupported: the claim is mostly supported by the information in the evidence snippets\nConflicting Evidence: there is both substantial supporting and refuting information in the evidence snippets\nRefuted: the claim is mostly refuted by the information in the evidence snippets\n\nFor verifying the verdict from the other fact-checker you should think about whether the verdict aligns with the information in the provided evidence snippets. If not, you can provide a different verdict than the given one that you find more suitable given the evidence snippets. IMPORTANT: Do not respond with any additional text and use only the provided evidence snippets to come up with your answer. Do not use your own knowledge or any other external sources than the ones provided."
+        user_prompt = f"Verify the verdict from the other fact-checker for the following claim using the provided evidence snippets.\nClaim: {claim}\nVerdict from the other fact-checker: {pred_label}\n\nEvidence snippets:\n{evidence}\n\nYour own verdict:"
+    elif pred_label == "Not Enough Evidence":
+        sys_prompt = "You are an expert fact-checker. You are provided with a claim and corresponding evidence snippets. Based only on the provided evidence snippets, classify the veracity of the given claim, i.e., whether the claim is supported, refuted, or has conflicting evidence. Answer only with exactly one of the three possible verdicts: 'Supported', 'Conflicting Evidence', 'Refuted'. The verdicts have the following meanings:\nSupported: the claim is mostly supported by the information in the evidence snippets\nConflicting Evidence: there is both substantial supporting and refuting information in the evidence snippets\nRefuted: the claim is mostly refuted by the information in the evidence snippets\n\nIMPORTANT: Do not respond with any additional text and use only the provided evidence snippets to come up with your answer. Do not use your own knowledge or any other external sources than the ones provided."
+        user_prompt = f"Classify the veracity of the following claim using the provided evidence.\nClaim: {claim}\n\nEvidence snippets:\n{evidence}\n\nYour verdict:"
 
-    sys_prompt = "You are an expert fact-checker. You are provided with a claim, a verdict for the claim's veracity from another fact-checker, and corresponding evidence snippets that were used to arrive at the given verdict. Based only on the provided evidence snippets, verify the verdict from the other fact-checker by classifying the veracity of the given claim yourself, i.e., classify whether the claim is supported, refuted, or has conflicting evidence. Answer only with exactly one of the three possible classes: 'Supported', 'Conflicting Evidence', 'Refuted'. You can repeat the original verdict from the other fact-checker if you find it trustworthy and you think the verdict aligns with the provided evidence snippets. Otherwise you can provide a different verdict that you find more suitable given the evidence snippets. IMPORTANT: Do not respond with any additional text and use only the provided evidence snippets to come up with your answer. Do not use your own knowledge or any other external sources than the ones provided."
-    user_prompt = f"Verify the verdict from the other fact-checker for the following claim using the provided evidence snippets.\nClaim: {claim}\nVerdict from the other fact-checker: {pred_label}\n\nEvidence snippets:\n{evidence}\n\nYour own verdict:"
+    return sys_prompt, user_prompt
+
+def get_abstention_prompts(claim: str, evidence: str):
+    sys_prompt = "You are an expert fact-checker. You are provided with a claim and corresponding evidence snippets.Your task is to decided whether there is information in the given evidence snippets that is relevant for the claim and allows to reason about the veracity of the claim. Answer with 'yes' if you find the information in the evidence snippets is relevant and substantial and allows to assess the veracity of the claim, i.e., whether it is supported, refuted, or has conflicting evidence. Or answer with 'no' if you find the information in the evidence snippets is insufficient and there is not much information given that is relevant for the claim. Answer only with either 'yes' or 'no'. IMPORTANT: Do not respond with any additional text and use only the provided evidence snippets to come up with your answer. Do not use your own knowledge or any other external sources than the ones provided."
+    user_prompt = f"Decide if you find that the information in the given evidence snippets is relevant for the following claim. Answer with 'yes' if you find the evidence sufficient, else answer with 'no'.\nClaim: {claim}\n\nEvidence snippets:\n{evidence}\n\nYour response:"
 
     return sys_prompt, user_prompt
 
@@ -177,7 +191,7 @@ def main(config=None):
         model = model.eval()
 
         # get token IDs for labels (class names)
-        label_ids = get_label_ids_hf_model(tokenizer)
+        verdict_label_ids, abst_label_ids = get_label_ids_hf_model(tokenizer)
 
     elif config.model == "DeepSeek":
         # TODO
@@ -234,12 +248,10 @@ def main(config=None):
         else:
             y_gt = np.zeros(len(CLASS_NAMES)).tolist()
             y_gt[CLASS_NAMES.index(label)] = 1.0
-        data_point_verification_results["class_distributions"] = {
-            "ground_truth": y_gt
-        }
+        data_point_verification_results["ground_truth_distribution"] = y_gt
 
         for attr_method in config.attr_methods:
-            data_point_verification_results["class_distributions"][attr_method] = {}
+            data_point_verification_results[attr_method] = {}
             for k in ks:
                 if k == "all":
                     evidence = partitioner.get_context()
@@ -249,17 +261,28 @@ def main(config=None):
                     evidence = build_evidence_context(citations, partitioner)
 
                 # get prompts & perform model inference
-                sys_prompt, user_prompt = get_prompts(claim, pred_label, evidence)
+                sys_prompt_veri, user_prompt_veri = get_verification_prompts(claim, pred_label, evidence)
+                sys_prompt_abst, user_prompt_abst = get_abstention_prompts(claim, evidence)
 
                 if model_name == "meta-llama/Llama-3.1-8B-Instruct":
-                    response = query_hf_model(model, tokenizer, device, sys_prompt, user_prompt)
-                    y_preds = get_pred_distribution_hf_model(response, label_ids)
+
+                    # 1. stage: whether to abstent or not by predicting "Not Enough Evidence"
+                    response_abst = query_hf_model(model, tokenizer, device, sys_prompt_abst, user_prompt_abst)
+                    abst_dist = get_pred_distribution_hf_model(response_abst, abst_label_ids)
+
+                    # 2. stage: predicting the verdict distribution over the remaining verdicts
+                    response_veri = query_hf_model(model, tokenizer, device, sys_prompt_veri, user_prompt_veri)
+                    verdict_pred_dist = get_pred_distribution_hf_model(response_veri, verdict_label_ids)
+
                 elif model_name == "deepseek-chat":
                     # TODO
                     response = query_api_model(...)
 
                 # save the results (i.e., the predicted distribution)
-                data_point_verification_results["class_distributions"][attr_method][f"k={k}"] = y_preds.tolist()
+                data_point_verification_results[attr_method][f"k={k}"] = {
+                    "abstention_dist": abst_dist.tolist(),
+                    "verdict_dist": verdict_pred_dist.tolist(),
+                }
 
         # save every claim
         save_json(config.verification_results_path, verification_results)
