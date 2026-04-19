@@ -62,7 +62,7 @@ def calc_metrics(results, k, attr_method):
         y_true,
         y_pred,
         target_names=LABELS,
-        zero_division=np.nan,
+        zero_division=0.0,
         output_dict=True,
     )
 
