@@ -25,7 +25,7 @@ def parse_args():
     parser.add_argument("--end_idx", type=int, default=None, help="Claim to end with")
     return parser.parse_args()
 
-CLASS_NAMES = ["Supported", "Conflicting Evidence/Cherrypicking", "Refuted", "Not Enough Evidence"]
+CLASS_NAMES = ["Supported", "Conflicting Evidence/Cherrypicking", "Refuted"]
 
 def query_api_model(client, model, sys_prompt, user_prompt, max_retries=5):
     for attempt in range(max_retries):
@@ -58,11 +58,12 @@ def query_api_model(client, model, sys_prompt, user_prompt, max_retries=5):
                 raise
 
 def get_label_tokens_api_model():
-    """First tokens of class names for deepseek-chat model."""
+    """First tokens of class names & yes/no for deepseek-chat model."""
 
-    verdict_label_tokens = ["Supported", "Conf", "Ref", "Not"]
+    verdict_label_tokens = ["Supported", "Conf", "Ref"]
+    abst_label_tokens = ["yes", "no"]
 
-    return verdict_label_tokens
+    return verdict_label_tokens, abst_label_tokens
 
 def get_pred_distribution_api_model(response, label_tokens: List[str]):
 
@@ -102,7 +103,11 @@ def get_label_ids_hf_model(tokenizer):
     for label in CLASS_NAMES:
         verdict_label_ids.append(tokenizer.encode(label, add_special_tokens=False)[0])
 
-    return verdict_label_ids
+    abst_label_ids = []
+    for label in ["yes", "no"]:
+        abst_label_ids.append(tokenizer.encode(label, add_special_tokens=False)[0])
+
+    return verdict_label_ids, abst_label_ids
 
 def get_pred_distribution_hf_model(response, label_ids: List[int]):
 
@@ -168,9 +173,19 @@ def build_evidence_context(citations: List[int], partitioner: BaseContextPartiti
     return "\n\n".join(evidence_snippets)
 
 def get_verification_prompts(claim: str, pred_label: str, evidence: str):
-        
-    sys_prompt = "You are an expert fact-checker. You are provided with a claim, a verdict for the claim's veracity from another fact-checker, and corresponding evidence snippets that were used to arrive at the given verdict. Based only on the provided evidence snippets, verify the verdict from the other fact-checker by classifying the veracity of the given claim yourself and by assessing whether you agree or disagree with the given verdict. You must classify the claim by reasoning about whether the claim is either supported, refuted, has conflicting evidence, or has not enough evidence to classify the veracity. Answer only with exactly one of the four possible verdicts: 'Supported', 'Conflicting Evidence', 'Refuted', 'Not Enough Evidence'. The verdicts have the following meanings:\nSupported: the claim is mostly supported by the information in the evidence snippets\nConflicting Evidence: there is both substantial supporting and refuting information in the evidence snippets\nRefuted: the claim is mostly refuted by the information in the evidence snippets\nNot Enough Evidence: The evidence snippets do not contain enough information to decide for any of the previous verdicts, i.e., there is neither substantial supporting nor refuting evidence\n\nFor verifying the verdict from the other fact-checker you should think about whether the verdict aligns with the information in the provided evidence snippets. If not, you can provide a different verdict than the given one that you find more suitable given the evidence snippets. IMPORTANT: Do not respond with any additional text and use only the provided evidence snippets to come up with your answer. Do not use your own knowledge or any other external sources than the ones provided."
-    user_prompt = f"Verify the verdict from the other fact-checker for the following claim using the provided evidence snippets.\nClaim: {claim}\nVerdict from the other fact-checker: {pred_label}\n\nEvidence snippets:\n{evidence}\n\nYour own verdict:"
+    if pred_label != "Not Enough Evidence":
+        sys_prompt = "You are an expert fact-checker. You are provided with a claim, a verdict for the claim's veracity from another fact-checker, and corresponding evidence snippets that were used to arrive at the given verdict. Based only on the provided evidence snippets, verify the verdict from the other fact-checker by classifying the veracity of the given claim yourself and by assessing whether you agree or disagree with the given verdict. You must classify the claim by reasoning about whether the claim is supported, refuted, or has conflicting evidence. Answer only with exactly one of the three possible verdicts: 'Supported', 'Conflicting Evidence', 'Refuted'. The verdicts have the following meanings:\nSupported: the claim is mostly supported by the information in the evidence snippets\nConflicting Evidence: there is both substantial supporting and refuting information in the evidence snippets\nRefuted: the claim is mostly refuted by the information in the evidence snippets\n\nFor verifying the verdict from the other fact-checker you should think about whether the verdict aligns with the information in the provided evidence snippets. If not, you can provide a different verdict than the given one that you find more suitable given the evidence snippets. IMPORTANT: Do not respond with any additional text and use only the provided evidence snippets to come up with your answer. Do not use your own knowledge or any other external sources than the ones provided."
+        user_prompt = f"Verify the verdict from the other fact-checker for the following claim using the provided evidence snippets.\nClaim: {claim}\nVerdict from the other fact-checker: {pred_label}\n\nEvidence snippets:\n{evidence}\n\nYour own verdict:"
+    elif pred_label == "Not Enough Evidence":
+        sys_prompt = "You are an expert fact-checker. You are provided with a claim and corresponding evidence snippets. Based only on the provided evidence snippets, classify the veracity of the given claim, i.e., whether the claim is supported, refuted, or has conflicting evidence. Answer only with exactly one of the three possible verdicts: 'Supported', 'Conflicting Evidence', 'Refuted'. The verdicts have the following meanings:\nSupported: the claim is mostly supported by the information in the evidence snippets\nConflicting Evidence: there is both substantial supporting and refuting information in the evidence snippets\nRefuted: the claim is mostly refuted by the information in the evidence snippets\n\nIMPORTANT: Do not respond with any additional text and use only the provided evidence snippets to come up with your answer. Do not use your own knowledge or any other external sources than the ones provided."
+        user_prompt = f"Classify the veracity of the following claim using the provided evidence.\nClaim: {claim}\n\nEvidence snippets:\n{evidence}\n\nYour verdict:"
+
+    return sys_prompt, user_prompt
+
+def get_abstention_prompts(claim: str, pred_label: str, evidence: str):
+
+    sys_prompt = "You are an expert fact-checker. You are provided with a claim, a verdict for the claim's veracity from another fact-checker, and corresponding evidence snippets that were used to arrive at the given verdict. There are four possible verdicts with the following meanings:\nSupported: the claim is mostly supported by the information in the evidence snippets\nConflicting Evidence: there is both substantial supporting and refuting information in the evidence snippets\nRefuted: the claim is mostly refuted by the information in the evidence snippets\nNot Enough Evidence: The information in the evidence snippets is insufficient to confidently determine the veracity of the claim\n\nYour task is to decided whether the information in the given evidence snippets is relevant or not for assessing the veracity of the claim. In other words, you decide if the verdict should be either one of 'Supported', 'Conflicting Evidence', 'Refuted', or if the verdict should be 'Not enough evidence'. Answer with 'yes' if you find the information in the evidence snippets is relevant and your verdict would be either 'Supported', 'Conflicting Evidence', or 'Refuted'. Or answer with 'no' if you find the information in the evidence snippets is irrelevant, insufficient, or does not relate to the claim at all and your verdict would be 'Not Enough Evidence'. Only answer with 'no' if you really can not classify the verdict of the claim as either 'Supported', 'Conflicting Evidence', or 'Refuted' based on the information in the evidence snippets and you have to classify it as 'Not Enough Evidence'. Answer only with either 'yes' or 'no'. You can use the provided verdict from the other fact-checker as reference but you do not have to agree with it and you should answer with your own opinion. IMPORTANT: Do not respond with any additional text and use only the provided evidence snippets to come up with your answer. Do not use your own knowledge or any other external sources than the ones provided."
+    user_prompt = f"Decide if you find that the information in the given evidence snippets is relevant or not for assessing the veracity of the following claim. Answer with 'yes' if you find the evidence relevant, else answer with 'no'.\nClaim: {claim}\n\nEvidence snippets:\n{evidence}\n\nVerdict from the other fact-checker: {pred_label}\n\nYour response:"
 
     return sys_prompt, user_prompt
 
@@ -185,8 +200,10 @@ def get_verification_preds(
         model: PreTrainedModel = None, 
         tokenizer: Union[PreTrainedTokenizer, PreTrainedTokenizerFast] = None, 
         device: str = None, 
+        abst_label_ids: List[int] = None, 
         verdict_label_ids: List[int] = None, 
         client: OpenAI = None, 
+        abst_label_tokens: List[str] = None, 
         verdict_label_tokens: List[str] = None
     ):
 
@@ -199,18 +216,29 @@ def get_verification_preds(
 
     # get prompts & perform model inference
     sys_prompt_veri, user_prompt_veri = get_verification_prompts(claim, pred_label, evidence)
+    sys_prompt_abst, user_prompt_abst = get_abstention_prompts(claim, pred_label, evidence)
 
     if model_name == "meta-llama/Llama-3.1-8B-Instruct":
 
+        # 1. stage: whether to abstain or not by predicting "Not Enough Evidence"
+        response_abst = query_hf_model(model, tokenizer, device, sys_prompt_abst, user_prompt_abst)
+        abst_dist = get_pred_distribution_hf_model(response_abst, abst_label_ids)
+
+        # 2. stage: predicting the verdict distribution over the remaining verdicts
         response_veri = query_hf_model(model, tokenizer, device, sys_prompt_veri, user_prompt_veri)
         verdict_pred_dist = get_pred_distribution_hf_model(response_veri, verdict_label_ids)
 
     elif model_name == "deepseek-chat":
         
+        # 1. stage: whether to abstain or not by predicting "Not Enough Evidence"
+        response_abst = query_api_model(client, model_name, sys_prompt_abst, user_prompt_abst)
+        abst_dist = get_pred_distribution_api_model(response_abst, abst_label_tokens)
+        
+        # 2. stage: predicting the verdict distribution over the remaining verdicts
         response_veri = query_api_model(client, model_name, sys_prompt_veri, user_prompt_veri)
         verdict_pred_dist = get_pred_distribution_api_model(response_veri, verdict_label_tokens)
 
-    return verdict_pred_dist
+    return verdict_pred_dist, abst_dist
 
 
 def main(config=None):
@@ -235,7 +263,7 @@ def main(config=None):
         model = model.eval()
 
         # get (first) token IDs for labels (class names) and yes/no
-        verdict_label_ids = get_label_ids_hf_model(tokenizer)
+        verdict_label_ids, abst_label_ids = get_label_ids_hf_model(tokenizer)
 
     elif config.model == "DeepSeek":
 
@@ -246,7 +274,7 @@ def main(config=None):
         )
 
         # get (first) tokens for labels (class names) and yes/no
-        verdict_label_tokens = get_label_tokens_api_model()
+        verdict_label_tokens, abst_label_tokens = get_label_tokens_api_model()
 
     # TODO: add ks as cli argument later
     ks = ["all", "cite"]
@@ -297,37 +325,41 @@ def main(config=None):
         if label == "Not Enough Evidence":
             y_gt = None
         else:
-            y_gt = np.zeros(len(CLASS_NAMES[:-1])).tolist()
-            y_gt[CLASS_NAMES[:-1].index(label)] = 1.0
+            y_gt = np.zeros(len(CLASS_NAMES)).tolist()
+            y_gt[CLASS_NAMES.index(label)] = 1.0
         data_point_verification_results["ground_truth_distribution"] = y_gt
         data_point_verification_results["pred_distributions"] = {}
 
         # compute predicted distributions for baseline k=all once per claim (does not have to be re-computed for all attribution methods)
         if config.model == "Llama-3.1-8B-Instruct":
-            verdict_pred_dist_baseline = get_verification_preds(None, "all", partitioner, data_point_metrics_results, claim, pred_label, model_name, 
-                                                                model=model, tokenizer=tokenizer, device=device, verdict_label_ids=verdict_label_ids)
+            verdict_pred_dist_baseline, abst_dist_baseline = get_verification_preds(None, "all", partitioner, data_point_metrics_results, claim, 
+                                                                                    pred_label, model_name, model=model, tokenizer=tokenizer, device=device, 
+                                                                                    abst_label_ids=abst_label_ids, verdict_label_ids=verdict_label_ids)
         elif config.model == "DeepSeek":
-            verdict_pred_dist_baseline = get_verification_preds(None, "all", partitioner, data_point_metrics_results, claim, pred_label, model_name, 
-                                                                client=client, verdict_label_tokens=verdict_label_tokens)
+            verdict_pred_dist_baseline, abst_dist_baseline = get_verification_preds(None, "all", partitioner, data_point_metrics_results, claim, 
+                                                                                    pred_label, model_name, client=client, abst_label_tokens=abst_label_tokens, 
+                                                                                    verdict_label_tokens=verdict_label_tokens)
 
         # compute predicted distributions for all other k and all attribution methods
         for attr_method in config.attr_methods:
             data_point_verification_results["pred_distributions"][attr_method] = {}
             for k in ks:
                 if k == "all":
-                    verdict_pred_dist = verdict_pred_dist_baseline
+                    verdict_pred_dist, abst_dist = verdict_pred_dist_baseline, abst_dist_baseline
                 else:
                     if config.model == "Llama-3.1-8B-Instruct":
-                        verdict_pred_dist = get_verification_preds(attr_method, k, partitioner, data_point_metrics_results, claim, pred_label, model_name, 
-                                                                   model=model, tokenizer=tokenizer, device=device, verdict_label_ids=verdict_label_ids)
+                        verdict_pred_dist, abst_dist = get_verification_preds(attr_method, k, partitioner, data_point_metrics_results, claim, 
+                                                                            pred_label, model_name, model=model, tokenizer=tokenizer, device=device, 
+                                                                            abst_label_ids=abst_label_ids, verdict_label_ids=verdict_label_ids)
                     elif config.model == "DeepSeek":
-                        verdict_pred_dist = get_verification_preds(attr_method, k, partitioner, data_point_metrics_results, claim, pred_label, model_name, 
-                                                                   client=client, verdict_label_tokens=verdict_label_tokens)
+                        verdict_pred_dist, abst_dist = get_verification_preds(attr_method, k, partitioner, data_point_metrics_results, claim, 
+                                                                            pred_label, model_name, client=client, 
+                                                                            abst_label_tokens=abst_label_tokens, verdict_label_tokens=verdict_label_tokens)
             
                 # save the results (i.e., the predicted distribution)
                 data_point_verification_results["pred_distributions"][attr_method][f"k={k}"] = {
-                    "verdict_dist_3_classes": torch.softmax(verdict_pred_dist[:-1], axis=0).tolist(),
-                    "verdict_dist_4_classes": verdict_pred_dist.tolist(),
+                    "abstention_dist": abst_dist.tolist(),
+                    "verdict_dist": verdict_pred_dist.tolist(),
                 }
 
         # save every claim
