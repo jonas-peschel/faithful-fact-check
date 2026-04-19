@@ -25,7 +25,8 @@ def parse_args():
     parser.add_argument("--end_idx", type=int, default=None, help="Claim to end with")
     return parser.parse_args()
 
-CLASS_NAMES = ["Supported", "Conflicting Evidence/Cherrypicking", "Refuted", "Not Enough Evidence"]
+LABELS = ["Supported", "Conflicting Evidence/Cherrypicking", "Refuted", "Not Enough Evidence"]
+PRED_CLASS_NAMES = ["Supported", "Conflicting Evidence/Cherrypicking", "Refuted", "Insufficient Evidence"]
 
 def query_api_model(client, model, sys_prompt, user_prompt, max_retries=5):
     for attempt in range(max_retries):
@@ -60,7 +61,7 @@ def query_api_model(client, model, sys_prompt, user_prompt, max_retries=5):
 def get_label_tokens_api_model():
     """First tokens of class names for deepseek-chat model."""
 
-    verdict_label_tokens = ["Supported", "Conf", "Ref", "Not"]
+    verdict_label_tokens = ["Supported", "Conf", "Ref", "In"]
 
     return verdict_label_tokens
 
@@ -99,7 +100,7 @@ def query_hf_model(model, tokenizer, device, sys_prompt, user_prompt):
 def get_label_ids_hf_model(tokenizer):
 
     verdict_label_ids = []
-    for label in CLASS_NAMES:
+    for label in PRED_CLASS_NAMES:
         verdict_label_ids.append(tokenizer.encode(label, add_special_tokens=False)[0])
 
     return verdict_label_ids
@@ -168,8 +169,12 @@ def build_evidence_context(citations: List[int], partitioner: BaseContextPartiti
     return "\n\n".join(evidence_snippets)
 
 def get_verification_prompts(claim: str, pred_label: str, evidence: str):
+
+    # rename "Not Enough Evidence" into "Insufficient Evidence"
+    if pred_label == "Not Enough Evidence":
+        pred_label = "Insufficient Evidence"
         
-    sys_prompt = "You are an expert fact-checker. You are provided with a claim, a verdict for the claim's veracity from another fact-checker, and corresponding evidence snippets that were used to arrive at the given verdict. Based only on the provided evidence snippets, verify the verdict from the other fact-checker by classifying the veracity of the given claim yourself and by assessing whether you agree or disagree with the given verdict. You must classify the claim by reasoning about whether the claim is either supported, refuted, has conflicting evidence, or has not enough evidence to classify the veracity. Answer only with exactly one of the four possible verdicts: 'Supported', 'Conflicting Evidence', 'Refuted', 'Not Enough Evidence'. The verdicts have the following meanings:\nSupported: the claim is mostly supported by the information in the evidence snippets\nConflicting Evidence: there is both substantial supporting and refuting information in the evidence snippets\nRefuted: the claim is mostly refuted by the information in the evidence snippets\nNot Enough Evidence: The evidence snippets do not contain enough information to decide for any of the previous verdicts, i.e., there is neither substantial supporting nor refuting evidence\n\nFor verifying the verdict from the other fact-checker you should think about whether the verdict aligns with the information in the provided evidence snippets. If not, you can provide a different verdict than the given one that you find more suitable given the evidence snippets. IMPORTANT: Do not respond with any additional text and use only the provided evidence snippets to come up with your answer. Do not use your own knowledge or any other external sources than the ones provided."
+    sys_prompt = "You are an expert fact-checker. You are provided with a claim, a verdict for the claim's veracity from another fact-checker, and corresponding evidence snippets that were used to arrive at the given verdict. Based only on the provided evidence snippets, verify the verdict from the other fact-checker by classifying the veracity of the given claim yourself and by assessing whether you agree or disagree with the given verdict. You must classify the claim by reasoning about whether the claim is either supported, refuted, has conflicting evidence, or has insufficient evidence to classify the veracity. Answer only with exactly one of the four possible verdicts: 'Supported', 'Conflicting Evidence', 'Refuted', 'Insufficient Evidence'. The verdicts have the following meanings:\nSupported: the claim is mostly supported by the information in the evidence snippets\nConflicting Evidence: there is both substantial supporting and refuting information in the evidence snippets\nRefuted: the claim is mostly refuted by the information in the evidence snippets\nInsufficient Evidence: the evidence snippets are completely irrelevant to the claim and contain absolutely no information that allows to classify the claim's veracity\n\nFor verifying the verdict from the other fact-checker you should think about whether the verdict aligns with the information in the provided evidence snippets. If not, you can provide a different verdict than the given one that you find more suitable given the evidence snippets. Please use the 'Insufficient Evidence' verdict sparingly and only if you really can not provide any of the other verdicts that provide valuable information. IMPORTANT: Do not respond with any additional text and use only the provided evidence snippets to come up with your answer. Do not use your own knowledge or any other external sources than the ones provided."
     user_prompt = f"Verify the verdict from the other fact-checker for the following claim using the provided evidence snippets.\nClaim: {claim}\nVerdict from the other fact-checker: {pred_label}\n\nEvidence snippets:\n{evidence}\n\nYour own verdict:"
 
     return sys_prompt, user_prompt
@@ -297,8 +302,8 @@ def main(config=None):
         if label == "Not Enough Evidence":
             y_gt = None
         else:
-            y_gt = np.zeros(len(CLASS_NAMES[:-1])).tolist()
-            y_gt[CLASS_NAMES[:-1].index(label)] = 1.0
+            y_gt = np.zeros(len(LABELS[:-1])).tolist()
+            y_gt[LABELS[:-1].index(label)] = 1.0
         data_point_verification_results["ground_truth_distribution"] = y_gt
         data_point_verification_results["pred_distributions"] = {}
 
