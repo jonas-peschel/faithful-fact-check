@@ -21,6 +21,7 @@ def parse_args():
     parser.add_argument("--use_longcite", action="store_true", help="Whether to use ContextPartitioner from LongCite model.")
     parser.add_argument("--attr_methods", type=str, nargs="+", choices=["context_cite_32", "context_cite_64", "context_cite_128", "context_cite_256", "semantic_similarity", "leave_one_out", "nli_post_hoc_naive", "nli_post_hoc_sliding_window_3", "nli_post_hoc_sliding_window_5", "nli_post_hoc_greedy_sampling", "llm_post_hoc", "longcite_llm_direct"], help="Which attribution method to use.")
     parser.add_argument("--model", type=str, choices=["Llama-3.1-8B-Instruct", "DeepSeek"])
+    parser.add_argument("--add_additional_context", action="store_true", help="Whether to add additional context around the originally cited content.")
     parser.add_argument("--start_idx", type=int, default=0, help="Claim to start with")
     parser.add_argument("--end_idx", type=int, default=None, help="Claim to end with")
     return parser.parse_args()
@@ -152,7 +153,7 @@ def get_citation_text(cite_span: List[int], partitioner: BaseContextPartitioner)
 
     return citation_text, pre_text, post_text
 
-def build_evidence_context(citations: List[int], partitioner: BaseContextPartitioner):
+def build_evidence_context(citations: List[int], partitioner: BaseContextPartitioner, add_additional_context: bool):
 
     citations_full_answer = []
     for citations_sent in citations:
@@ -162,8 +163,10 @@ def build_evidence_context(citations: List[int], partitioner: BaseContextPartiti
     evidence_snippets = []
     for cite_span in merge_citation_spans(citations_full_answer):
         citation_text, pre_context, post_context = get_citation_text(cite_span, partitioner)
-        # evidence_snippet = " ".join([pre_context.split("\n\n")[-1], citation_text, post_context.split("\n\n")[0]])  # add pre- and post-context (split at paragraphs)
-        evidence_snippet = citation_text  # use cited passage only
+        if add_additional_context:
+            evidence_snippet = " ".join([pre_context.split("\n\n")[-1], citation_text, post_context.split("\n\n")[0]])  # add pre- and post-context (split at paragraphs)
+        else:
+            evidence_snippet = citation_text  # use cited passage only
         evidence_snippets.append(evidence_snippet)
 
     return "\n\n".join(evidence_snippets)
@@ -174,7 +177,7 @@ def get_verification_prompts(claim: str, pred_label: str, evidence: str):
     if pred_label == "Not Enough Evidence":
         pred_label = "Insufficient Evidence"
         
-    sys_prompt = "You are an expert fact-checker. You are provided with a claim, a verdict for the claim's veracity from another fact-checker, and corresponding evidence snippets that were used to arrive at the given verdict. Based only on the provided evidence snippets, verify the verdict from the other fact-checker by classifying the veracity of the given claim yourself and by assessing whether you agree or disagree with the given verdict. You must classify the claim by reasoning about whether the claim is either supported, refuted, has conflicting evidence, or has insufficient evidence to classify the veracity. Answer only with exactly one of the four possible verdicts: 'Supported', 'Conflicting Evidence', 'Refuted', 'Insufficient Evidence'. The verdicts have the following meanings:\nSupported: the claim is mostly supported by the information in the evidence snippets\nConflicting Evidence: there is both substantial supporting and refuting information in the evidence snippets\nRefuted: the claim is mostly refuted by the information in the evidence snippets\nInsufficient Evidence: the evidence snippets are completely irrelevant to the claim and contain absolutely no information that allows to classify the claim's veracity\n\nFor verifying the verdict from the other fact-checker you should think about whether the verdict aligns with the information in the provided evidence snippets. If not, you can provide a different verdict than the given one that you find more suitable given the evidence snippets. Please use the 'Insufficient Evidence' verdict sparingly and only if you really can not provide any of the other verdicts that provide valuable information. IMPORTANT: Do not respond with any additional text and use only the provided evidence snippets to come up with your answer. Do not use your own knowledge or any other external sources than the ones provided."
+    sys_prompt = "You are an expert fact-checker. You are provided with a claim, a verdict for the claim's veracity from another fact-checker, and corresponding evidence snippets that were used to arrive at the given verdict. Based only on the provided evidence snippets, verify the verdict from the other fact-checker by classifying the veracity of the given claim yourself and by assessing whether you agree or disagree with the given verdict. You must classify the claim by reasoning about whether the claim is either supported, refuted, has conflicting evidence, or has insufficient evidence to classify the veracity. Answer only with exactly one of the four possible verdicts: 'Supported', 'Conflicting Evidence', 'Refuted', 'Insufficient Evidence'. The verdicts have the following meanings:\nSupported: the claim is mostly supported by the information in the evidence snippets\nConflicting Evidence: there is both substantial supporting and refuting information in the evidence snippets\nRefuted: the claim is mostly refuted by the information in the evidence snippets\nInsufficient Evidence: the evidence snippets are completely irrelevant to the claim and contain absolutely no information that allows to classify the claim's veracity\n\nFor verifying the verdict from the other fact-checker you should think about whether the verdict aligns with the information in the provided evidence snippets. If not, you can provide a different verdict than the given one that you find more suitable given the evidence snippets. Please use the 'Insufficient Evidence' verdict sparingly and only if you really can not provide any of the other verdicts. IMPORTANT: Do not respond with any additional text and use only the provided evidence snippets to come up with your answer. Do not use your own knowledge or any other external sources than the ones provided."
     user_prompt = f"Verify the verdict from the other fact-checker for the following claim using the provided evidence snippets.\nClaim: {claim}\nVerdict from the other fact-checker: {pred_label}\n\nEvidence snippets:\n{evidence}\n\nYour own verdict:"
 
     return sys_prompt, user_prompt
@@ -182,7 +185,8 @@ def get_verification_prompts(claim: str, pred_label: str, evidence: str):
 def get_verification_preds(
         attr_method: str, 
         k: str | int, 
-        partitioner: BaseContextPartitioner, 
+        partitioner: BaseContextPartitioner,
+        add_additional_context: bool, 
         data_point_metrics_results: dict, 
         claim: str, 
         pred_label: str, 
@@ -200,7 +204,7 @@ def get_verification_preds(
     elif k == "cite":
         # use discrete citations to give as context
         citations = data_point_metrics_results["methods"][attr_method]["citations"]
-        evidence = build_evidence_context(citations, partitioner)
+        evidence = build_evidence_context(citations, partitioner, add_additional_context)
 
     # get prompts & perform model inference
     sys_prompt_veri, user_prompt_veri = get_verification_prompts(claim, pred_label, evidence)
@@ -309,11 +313,12 @@ def main(config=None):
 
         # compute predicted distributions for baseline k=all once per claim (does not have to be re-computed for all attribution methods)
         if config.model == "Llama-3.1-8B-Instruct":
-            verdict_pred_dist_baseline = get_verification_preds(None, "all", partitioner, data_point_metrics_results, claim, pred_label, model_name, 
-                                                                model=model, tokenizer=tokenizer, device=device, verdict_label_ids=verdict_label_ids)
+            verdict_pred_dist_baseline = get_verification_preds(None, "all", partitioner, config.add_additional_context, data_point_metrics_results, 
+                                                                claim, pred_label, model_name, model=model, tokenizer=tokenizer, device=device, 
+                                                                verdict_label_ids=verdict_label_ids)
         elif config.model == "DeepSeek":
-            verdict_pred_dist_baseline = get_verification_preds(None, "all", partitioner, data_point_metrics_results, claim, pred_label, model_name, 
-                                                                client=client, verdict_label_tokens=verdict_label_tokens)
+            verdict_pred_dist_baseline = get_verification_preds(None, "all", partitioner, config.add_additional_context, data_point_metrics_results, 
+                                                                claim, pred_label, model_name, client=client, verdict_label_tokens=verdict_label_tokens)
 
         # compute predicted distributions for all other k and all attribution methods
         for attr_method in config.attr_methods:
@@ -323,15 +328,16 @@ def main(config=None):
                     verdict_pred_dist = verdict_pred_dist_baseline
                 else:
                     if config.model == "Llama-3.1-8B-Instruct":
-                        verdict_pred_dist = get_verification_preds(attr_method, k, partitioner, data_point_metrics_results, claim, pred_label, model_name, 
-                                                                   model=model, tokenizer=tokenizer, device=device, verdict_label_ids=verdict_label_ids)
+                        verdict_pred_dist = get_verification_preds(attr_method, k, partitioner, config.add_additional_context, data_point_metrics_results, 
+                                                                   claim, pred_label, model_name, model=model, tokenizer=tokenizer, device=device, 
+                                                                   verdict_label_ids=verdict_label_ids)
                     elif config.model == "DeepSeek":
-                        verdict_pred_dist = get_verification_preds(attr_method, k, partitioner, data_point_metrics_results, claim, pred_label, model_name, 
-                                                                   client=client, verdict_label_tokens=verdict_label_tokens)
+                        verdict_pred_dist = get_verification_preds(attr_method, k, partitioner, config.add_additional_context, data_point_metrics_results, 
+                                                                   claim, pred_label, model_name, client=client, verdict_label_tokens=verdict_label_tokens)
             
                 # save the results (i.e., the predicted distribution)
                 data_point_verification_results["pred_distributions"][attr_method][f"k={k}"] = {
-                    "verdict_dist_3_classes": torch.softmax(verdict_pred_dist[:-1], axis=0).tolist(),
+                    "verdict_dist_3_classes": (verdict_pred_dist[:-1]/verdict_pred_dist[:-1].sum()).tolist(),
                     "verdict_dist_4_classes": verdict_pred_dist.tolist(),
                 }
 
