@@ -1,13 +1,12 @@
 import argparse
-import os
+import os 
 from tqdm.auto import tqdm
 from dotenv import load_dotenv
 from openai import OpenAI, RateLimitError, APITimeoutError, APIConnectionError
-from transformers import PreTrainedModel, PreTrainedTokenizer, PreTrainedTokenizerFast
 from utils import load_json, save_json, load_data, load_datapoint, load_model
 from longcite_utils import LongCiteContextPartitioner
 import time
-from typing import List, Union
+from typing import List 
 import numpy as np 
 import torch
 from pathlib import Path
@@ -109,7 +108,7 @@ def get_label_ids_hf_model(tokenizer):
 
     return verdict_label_ids, abst_label_ids
 
-def get_pred_distribution_hf_model(response, label_ids: List[int]):
+def get_pred_distribution_hf_model(response, label_ids: List):
 
     pred_logits = response.logits.cpu().squeeze()[-1,:]
     pred_label_logits = pred_logits[label_ids]
@@ -166,9 +165,7 @@ def build_evidence_context(citations: List[int], partitioner: BaseContextPartiti
     evidence_snippets = []
     for cite_span in merge_citation_spans(citations_full_answer):
         citation_text, pre_context, post_context = get_citation_text(cite_span, partitioner)
-        # evidence_snippet = " ".join([pre_context.split("\n\n")[-1], citation_text, post_context.split("\n\n")[0]])  # add pre- and post-context (split at paragraphs)
-        evidence_snippet = citation_text  # use cited passage only
-        evidence_snippets.append(evidence_snippet)
+        evidence_snippets.append(citation_text)
 
     return "\n\n".join(evidence_snippets)
 
@@ -188,57 +185,6 @@ def get_abstention_prompts(claim: str, pred_label: str, evidence: str):
     user_prompt = f"Decide if you find that the information in the given evidence snippets is relevant or not for assessing the veracity of the following claim. Answer with 'yes' if you find the evidence relevant, else answer with 'no'.\nClaim: {claim}\n\nEvidence snippets:\n{evidence}\n\nVerdict from the other fact-checker: {pred_label}\n\nYour response:"
 
     return sys_prompt, user_prompt
-
-def get_verification_preds(
-        attr_method: str, 
-        k: str | int, 
-        partitioner: BaseContextPartitioner, 
-        data_point_metrics_results: dict, 
-        claim: str, 
-        pred_label: str, 
-        model_name: str, 
-        model: PreTrainedModel = None, 
-        tokenizer: Union[PreTrainedTokenizer, PreTrainedTokenizerFast] = None, 
-        device: str = None, 
-        abst_label_ids: List[int] = None, 
-        verdict_label_ids: List[int] = None, 
-        client: OpenAI = None, 
-        abst_label_tokens: List[str] = None, 
-        verdict_label_tokens: List[str] = None
-    ):
-
-    if k == "all":
-        evidence = partitioner.get_context()
-    elif k == "cite":
-        # use discrete citations to give as context
-        citations = data_point_metrics_results["methods"][attr_method]["citations"]
-        evidence = build_evidence_context(citations, partitioner)
-
-    # get prompts & perform model inference
-    sys_prompt_veri, user_prompt_veri = get_verification_prompts(claim, pred_label, evidence)
-    sys_prompt_abst, user_prompt_abst = get_abstention_prompts(claim, pred_label, evidence)
-
-    if model_name == "meta-llama/Llama-3.1-8B-Instruct":
-
-        # 1. stage: whether to abstain or not by predicting "Not Enough Evidence"
-        response_abst = query_hf_model(model, tokenizer, device, sys_prompt_abst, user_prompt_abst)
-        abst_dist = get_pred_distribution_hf_model(response_abst, abst_label_ids)
-
-        # 2. stage: predicting the verdict distribution over the remaining verdicts
-        response_veri = query_hf_model(model, tokenizer, device, sys_prompt_veri, user_prompt_veri)
-        verdict_pred_dist = get_pred_distribution_hf_model(response_veri, verdict_label_ids)
-
-    elif model_name == "deepseek-chat":
-        
-        # 1. stage: whether to abstain or not by predicting "Not Enough Evidence"
-        response_abst = query_api_model(client, model_name, sys_prompt_abst, user_prompt_abst)
-        abst_dist = get_pred_distribution_api_model(response_abst, abst_label_tokens)
-        
-        # 2. stage: predicting the verdict distribution over the remaining verdicts
-        response_veri = query_api_model(client, model_name, sys_prompt_veri, user_prompt_veri)
-        verdict_pred_dist = get_pred_distribution_api_model(response_veri, verdict_label_tokens)
-
-    return verdict_pred_dist, abst_dist
 
 
 def main(config=None):
@@ -262,7 +208,7 @@ def main(config=None):
         model, tokenizer, device = load_model(model_name, True)
         model = model.eval()
 
-        # get (first) token IDs for labels (class names) and yes/no
+        # get token IDs for labels (class names)
         verdict_label_ids, abst_label_ids = get_label_ids_hf_model(tokenizer)
 
     elif config.model == "DeepSeek":
@@ -330,32 +276,40 @@ def main(config=None):
         data_point_verification_results["ground_truth_distribution"] = y_gt
         data_point_verification_results["pred_distributions"] = {}
 
-        # compute predicted distributions for baseline k=all once per claim (does not have to be re-computed for all attribution methods)
-        if config.model == "Llama-3.1-8B-Instruct":
-            verdict_pred_dist_baseline, abst_dist_baseline = get_verification_preds(None, "all", partitioner, data_point_metrics_results, claim, 
-                                                                                    pred_label, model_name, model=model, tokenizer=tokenizer, device=device, 
-                                                                                    abst_label_ids=abst_label_ids, verdict_label_ids=verdict_label_ids)
-        elif config.model == "DeepSeek":
-            verdict_pred_dist_baseline, abst_dist_baseline = get_verification_preds(None, "all", partitioner, data_point_metrics_results, claim, 
-                                                                                    pred_label, model_name, client=client, abst_label_tokens=abst_label_tokens, 
-                                                                                    verdict_label_tokens=verdict_label_tokens)
-
-        # compute predicted distributions for all other k and all attribution methods
         for attr_method in config.attr_methods:
             data_point_verification_results["pred_distributions"][attr_method] = {}
             for k in ks:
                 if k == "all":
-                    verdict_pred_dist, abst_dist = verdict_pred_dist_baseline, abst_dist_baseline
-                else:
-                    if config.model == "Llama-3.1-8B-Instruct":
-                        verdict_pred_dist, abst_dist = get_verification_preds(attr_method, k, partitioner, data_point_metrics_results, claim, 
-                                                                            pred_label, model_name, model=model, tokenizer=tokenizer, device=device, 
-                                                                            abst_label_ids=abst_label_ids, verdict_label_ids=verdict_label_ids)
-                    elif config.model == "DeepSeek":
-                        verdict_pred_dist, abst_dist = get_verification_preds(attr_method, k, partitioner, data_point_metrics_results, claim, 
-                                                                            pred_label, model_name, client=client, 
-                                                                            abst_label_tokens=abst_label_tokens, verdict_label_tokens=verdict_label_tokens)
-            
+                    evidence = partitioner.get_context()
+                elif k == "cite":
+                    # use discrete citations to give as context
+                    citations = data_point_metrics_results["methods"][attr_method]["citations"]
+                    evidence = build_evidence_context(citations, partitioner)
+
+                # get prompts & perform model inference
+                sys_prompt_veri, user_prompt_veri = get_verification_prompts(claim, pred_label, evidence)
+                sys_prompt_abst, user_prompt_abst = get_abstention_prompts(claim, pred_label, evidence)
+
+                if model_name == "meta-llama/Llama-3.1-8B-Instruct":
+
+                    # 1. stage: whether to abstent or not by predicting "Not Enough Evidence"
+                    response_abst = query_hf_model(model, tokenizer, device, sys_prompt_abst, user_prompt_abst)
+                    abst_dist = get_pred_distribution_hf_model(response_abst, abst_label_ids)
+
+                    # 2. stage: predicting the verdict distribution over the remaining verdicts
+                    response_veri = query_hf_model(model, tokenizer, device, sys_prompt_veri, user_prompt_veri)
+                    verdict_pred_dist = get_pred_distribution_hf_model(response_veri, verdict_label_ids)
+
+                elif model_name == "deepseek-chat":
+        
+                    # 1. stage: whether to abstain or not by predicting "Not Enough Evidence"
+                    response_abst = query_api_model(client, model_name, sys_prompt_abst, user_prompt_abst)
+                    abst_dist = get_pred_distribution_api_model(response_abst, abst_label_tokens)
+                    
+                    # 2. stage: predicting the verdict distribution over the remaining verdicts
+                    response_veri = query_api_model(client, model_name, sys_prompt_veri, user_prompt_veri)
+                    verdict_pred_dist = get_pred_distribution_api_model(response_veri, verdict_label_tokens)
+
                 # save the results (i.e., the predicted distribution)
                 data_point_verification_results["pred_distributions"][attr_method][f"k={k}"] = {
                     "abstention_dist": abst_dist.tolist(),

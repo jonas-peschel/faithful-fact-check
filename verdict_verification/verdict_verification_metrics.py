@@ -46,9 +46,17 @@ def ranked_probability_score(y_true: NDArray, y_pred_probs: NDArray):
 
 def calc_metrics(results, k, attr_method):
 
+    # predicted Not Enough Evidence (i.e. abstained)
+    abstention_thresh = 0.9
+    abstention_mask = np.array([res["pred_distributions"][attr_method][f"k={k}"]["abstention_dist"][1] >= abstention_thresh for res in results["results"]])
+
+    # ground truth Not Enough Evidence
+    gt_nee_mask = np.array([res["label"] == "Not Enough Evidence" for res in results["results"]])
+
     # include instances with "not enough evidence" for confusion matrix-based metrics
-    y_pred = np.array([np.argmax(res["class_distributions"][attr_method][f"k={k}"]) if res["label"] != "Not Enough Evidence" else 3 for res in results["results"]])
-    y_true = np.array([np.argmax(res["class_distributions"]["ground_truth"]) if res["label"] != "Not Enough Evidence" else 3 for res in results["results"]])
+    y_pred = np.array([np.argmax(res["pred_distributions"][attr_method][f"k={k}"]["verdict_dist"]) for res in results["results"]])
+    y_pred[abstention_mask] = 3
+    y_true = np.array([LABELS.index(res["label"]) for res in results["results"]])
 
     cm_metrics = classification_report(
         y_true,
@@ -58,16 +66,23 @@ def calc_metrics(results, k, attr_method):
         output_dict=True,
     )
 
-    # exclude instances with "not enough evidence" for ordinal metrics
-    y_pred = np.array([np.argmax(res["class_distributions"][attr_method][f"k={k}"]) for res in results["results"] if res["label"] != "Not Enough Evidence"])
-    y_pred_probs = np.array([res["class_distributions"][attr_method][f"k={k}"] for res in results["results"] if res["label"] != "Not Enough Evidence"])
-    y_true = np.array([np.argmax(res["class_distributions"]["ground_truth"]) for res in results["results"] if res["label"] != "Not Enough Evidence"])
+    # exclude instances with either prediction or ground truth "not enough evidence" for ordinal metrics
+    y_pred = np.array([np.argmax(res["pred_distributions"][attr_method][f"k={k}"]["verdict_dist"]) for res in results["results"]])[~(abstention_mask | gt_nee_mask)]
+    y_pred_probs = np.array([res["pred_distributions"][attr_method][f"k={k}"]["verdict_dist"] for res in results["results"]])[~(abstention_mask | gt_nee_mask)]
+    y_true = np.array([LABELS.index(res["label"]) for res in results["results"]])[~(abstention_mask | gt_nee_mask)]
 
     mse = mean_squared_error(y_true, y_pred)
     kappa = cohen_kappa_score(y_true, y_pred, weights="quadratic").item()
-    rps, rps_scores = ranked_probability_score(y_true, y_pred_probs)
+    mean_rps, rps_scores = ranked_probability_score(y_true, y_pred_probs)
 
-    return cm_metrics, mse, kappa, rps
+    abstention_info = {
+        "n_abstentions": np.sum(abstention_mask).item(),
+        "n_gt_nee": np.sum(gt_nee_mask).item(),
+        "n_abstained_or_gt_nee": np.sum((abstention_mask | gt_nee_mask)).item(),
+        "abstained_or_gt_nee_mask": (abstention_mask | gt_nee_mask).tolist(),
+    }
+
+    return cm_metrics, mse, kappa, mean_rps, rps_scores.tolist(), abstention_info
 
 def main(config=None):
 
@@ -75,8 +90,7 @@ def main(config=None):
         config = parse_args()
 
     results = load_json(config.results_path)
-    attr_methods = list(results["results"][0]["class_distributions"].keys())
-    attr_methods.remove("ground_truth")
+    attr_methods = list(results["results"][0]["pred_distributions"].keys())
 
     # TODO: add ks as cli argument later
     ks = ["all", "cite"]
@@ -86,12 +100,14 @@ def main(config=None):
     for attr_method in attr_methods:
         results["metrics"][attr_method] = {}
         for k in ks:
-            cm_metrics, mse, kappa, rps = calc_metrics(results, k, attr_method)
+            cm_metrics, mse, kappa, mean_rps, rps_scores, abstention_info = calc_metrics(results, k, attr_method)
             results["metrics"][attr_method][f"k={k}"] = {
+                "abstention_info": abstention_info,
                 "confusion_matrix_metrics": cm_metrics,
                 "mean_squared_error": mse,
                 "cohens_kappa": kappa,
-                "ranked_probability_score": rps,
+                "mean_ranked_probability_score": mean_rps, 
+                "ranked_probability_scores": rps_scores,
             }
 
     save_json(config.results_path, results)
