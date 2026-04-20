@@ -47,16 +47,20 @@ def ranked_probability_score(y_true: NDArray, y_pred_probs: NDArray):
 
 def calc_metrics(results, k, attr_method):
 
+    # filter invalid results, e.g., for BadRequestError in DeepSeek API
+    invalid_mask = [res["pred_distributions"][attr_method][f"k={k}"]["verdict_dist_4_classes"] is None for res in results["results"]]
+    filtered_results = [res for is_invalid, res in zip(invalid_mask, results["results"]) if not is_invalid]
+
     # predicted Not Enough Evidence (i.e. abstained)
-    pred_nee_mask = np.array([res["pred_distributions"][attr_method][f"k={k}"]["verdict_dist_4_classes"][3] >= ABSTENTION_THRESH for res in results["results"]])
+    pred_nee_mask = np.array([res["pred_distributions"][attr_method][f"k={k}"]["verdict_dist_4_classes"][3] >= ABSTENTION_THRESH for res in filtered_results])
 
     # ground truth Not Enough Evidence
-    gt_nee_mask = np.array([res["label"] == "Not Enough Evidence" for res in results["results"]])
+    gt_nee_mask = np.array([res["label"] == "Not Enough Evidence" for res in filtered_results])
 
     # include instances with "not enough evidence" for confusion matrix-based metrics
-    y_pred = np.array([np.argmax(res["pred_distributions"][attr_method][f"k={k}"]["verdict_dist_3_classes"]) for res in results["results"]])
+    y_pred = np.array([np.argmax(res["pred_distributions"][attr_method][f"k={k}"]["verdict_dist_3_classes"]) for res in filtered_results])
     y_pred[pred_nee_mask] = 3
-    y_true = np.array([LABELS.index(res["label"]) for res in results["results"]])
+    y_true = np.array([LABELS.index(res["label"]) for res in filtered_results])
 
     cm_metrics = classification_report(
         y_true,
@@ -67,9 +71,9 @@ def calc_metrics(results, k, attr_method):
     )
 
     # exclude instances with either prediction or ground truth "not enough evidence" for ordinal metrics
-    y_pred = np.array([np.argmax(res["pred_distributions"][attr_method][f"k={k}"]["verdict_dist_3_classes"]) for res in results["results"]])[~(pred_nee_mask | gt_nee_mask)]
-    y_pred_probs = np.array([res["pred_distributions"][attr_method][f"k={k}"]["verdict_dist_3_classes"] for res in results["results"]])[~(pred_nee_mask | gt_nee_mask)]
-    y_true = np.array([LABELS.index(res["label"]) for res in results["results"]])[~(pred_nee_mask | gt_nee_mask)]
+    y_pred = np.array([np.argmax(res["pred_distributions"][attr_method][f"k={k}"]["verdict_dist_3_classes"]) for res in filtered_results])[~(pred_nee_mask | gt_nee_mask)]
+    y_pred_probs = np.array([res["pred_distributions"][attr_method][f"k={k}"]["verdict_dist_3_classes"] for res in filtered_results])[~(pred_nee_mask | gt_nee_mask)]
+    y_true = np.array([LABELS.index(res["label"]) for res in filtered_results])[~(pred_nee_mask | gt_nee_mask)]
 
     mse = mean_squared_error(y_true, y_pred)
     kappa = cohen_kappa_score(y_true, y_pred, weights="quadratic").item()
@@ -80,6 +84,7 @@ def calc_metrics(results, k, attr_method):
         "n_gt_nee": np.sum(gt_nee_mask).item(),
         "n_abstained_or_gt_nee": np.sum((pred_nee_mask | gt_nee_mask)).item(),
         "abstained_or_gt_nee_mask": (pred_nee_mask | gt_nee_mask).tolist(),
+        "invalid_instances_mask": invalid_mask,
     }
 
     return cm_metrics, mse, kappa, mean_rps, rps_scores.tolist(), abstention_info

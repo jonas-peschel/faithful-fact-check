@@ -2,7 +2,7 @@ import argparse
 import os
 from tqdm.auto import tqdm
 from dotenv import load_dotenv
-from openai import OpenAI, RateLimitError, APITimeoutError, APIConnectionError
+from openai import OpenAI, RateLimitError, APITimeoutError, APIConnectionError, BadRequestError
 from transformers import PreTrainedModel, PreTrainedTokenizer, PreTrainedTokenizerFast
 from utils import load_json, save_json, load_data, load_datapoint, load_model
 from longcite_utils import LongCiteContextPartitioner
@@ -55,6 +55,8 @@ def query_api_model(client, model, sys_prompt, user_prompt, max_retries=5):
             if attempt == max_retries-1:
                 raise 
             time.sleep(5)
+        except BadRequestError:
+            return None 
         except Exception as e:
             if attempt == max_retries-1:
                 raise
@@ -217,6 +219,8 @@ def get_verification_preds(
     elif model_name == "deepseek-chat":
         
         response_veri = query_api_model(client, model_name, sys_prompt_veri, user_prompt_veri)
+        if not response_veri: # BadRequestError
+            return None
         verdict_pred_dist = get_pred_distribution_api_model(response_veri, verdict_label_tokens)
 
     return verdict_pred_dist
@@ -336,10 +340,16 @@ def main(config=None):
                                                                    claim, pred_label, model_name, client=client, verdict_label_tokens=verdict_label_tokens)
             
                 # save the results (i.e., the predicted distribution)
-                data_point_verification_results["pred_distributions"][attr_method][f"k={k}"] = {
-                    "verdict_dist_3_classes": (verdict_pred_dist[:-1]/verdict_pred_dist[:-1].sum()).tolist(),
-                    "verdict_dist_4_classes": verdict_pred_dist.tolist(),
-                }
+                if verdict_pred_dist:
+                    data_point_verification_results["pred_distributions"][attr_method][f"k={k}"] = {
+                        "verdict_dist_3_classes": (verdict_pred_dist[:-1]/verdict_pred_dist[:-1].sum()).tolist(),
+                        "verdict_dist_4_classes": verdict_pred_dist.tolist(),
+                    }
+                elif not verdict_pred_dist:
+                    data_point_verification_results["pred_distributions"][attr_method][f"k={k}"] = {
+                        "verdict_dist_3_classes": None,
+                        "verdict_dist_4_classes": None,
+                    }
 
         # save every claim
         save_json(config.verification_results_path, verification_results)
