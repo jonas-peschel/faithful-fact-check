@@ -9,6 +9,7 @@ from longcite_utils import LongCiteContextPartitioner
 import time
 from typing import List, Union
 import numpy as np 
+from numpy.typing import NDArray
 import torch
 from pathlib import Path
 from context_cite.context_partitioner import BaseContextPartitioner, SimpleContextPartitioner
@@ -162,15 +163,24 @@ def get_citation_text(cite_span: List[int], partitioner: BaseContextPartitioner)
 
     return citation_text, pre_text, post_text
 
-def build_evidence_context(citations: List[int], partitioner: BaseContextPartitioner, add_additional_context: bool):
+def flatten_and_deduplicate_citations(citations: List[List[int]]):
 
     citations_full_answer = []
     for citations_sent in citations:
         citations_full_answer.extend(citations_sent)
     citations_full_answer = list(set(citations_full_answer))
+    return citations_full_answer
+
+def max_pool_and_top_k_attr_scores(attr_scores: NDArray, k: int):
+
+    attr_scores_pooled = np.max(attr_scores, axis=0)
+    top_k_source_sent_idxs = np.argsort(attr_scores_pooled)[-k:]
+    return top_k_source_sent_idxs 
+
+def build_evidence_context(source_sent_idxs: List[int], partitioner: BaseContextPartitioner, add_additional_context: bool):
 
     evidence_snippets = []
-    for cite_span in merge_citation_spans(citations_full_answer):
+    for cite_span in merge_citation_spans(source_sent_idxs):
         citation_text, pre_context, post_context = get_citation_text(cite_span, partitioner)
         if add_additional_context:
             evidence_snippet = " ".join([pre_context.split("\n\n")[-1], citation_text, post_context.split("\n\n")[0]])  # add pre- and post-context (split at paragraphs)
@@ -213,7 +223,12 @@ def get_verification_preds(
     elif k == "cite":
         # use discrete citations to give as context
         citations = data_point_metrics_results["methods"][attr_method]["citations"]
-        evidence = build_evidence_context(citations, partitioner, add_additional_context)
+        source_sent_idxs = flatten_and_deduplicate_citations(citations)
+        evidence = build_evidence_context(source_sent_idxs, partitioner, add_additional_context)
+    elif isinstance(k, int):
+        attr_scores = np.array(data_point_metrics_results["methods"][attr_method]["attr_scores"])
+        source_sent_idxs = max_pool_and_top_k_attr_scores(attr_scores, k)
+        evidence = build_evidence_context(source_sent_idxs, partitioner, add_additional_context)
 
     # get prompts & perform model inference
     sys_prompt_veri, user_prompt_veri = get_verification_prompts(claim, pred_label, evidence)
