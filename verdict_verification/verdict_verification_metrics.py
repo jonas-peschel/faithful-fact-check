@@ -1,6 +1,7 @@
 import argparse 
 from utils import load_json, save_json
 import numpy as np
+import re 
 from numpy.typing import NDArray 
 from sklearn.metrics import mean_squared_error, cohen_kappa_score, classification_report
 
@@ -9,6 +10,12 @@ def parse_args():
     parser.add_argument("--results_path", type=str, help="Path to the file where verdict verification experiment results are stored.")
 
     return parser.parse_args()
+
+def int_or_str(value: str):
+    try:
+        return int(value)
+    except ValueError:
+        return value
 
 LABELS = ["Supported", "Conflicting Evidence/Cherrypicking", "Refuted", "Not Enough Evidence"]
 ABSTENTION_THRESH = 0.7
@@ -95,10 +102,11 @@ def main(config=None):
         config = parse_args()
 
     results = load_json(config.results_path)
-    attr_methods = list(results["results"][0]["pred_distributions"].keys())
 
-    # TODO: add ks as cli argument later
-    ks = ["all", "cite"]
+    # get attribution methods & k values
+    attr_methods = list(results["results"][0]["pred_distributions"].keys())
+    ks = [int_or_str(re.match(pattern=r"k=(\w+)", string=key).group(1)) 
+          for key in list(results["results"][0]["pred_distributions"][attr_methods[0]].keys())]  # not really necessary I just realized but now I am going to keep it
 
     # compute metrics
     results["metrics"] = {}

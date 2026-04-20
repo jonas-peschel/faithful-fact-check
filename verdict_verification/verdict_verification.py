@@ -13,6 +13,12 @@ import torch
 from pathlib import Path
 from context_cite.context_partitioner import BaseContextPartitioner, SimpleContextPartitioner
 
+def int_or_str(value: str):
+    try:
+        return int(value)
+    except ValueError:
+        return value
+
 def parse_args():
     parser = argparse.ArgumentParser(description="Experiment for verdict verification using pruned context.")
     parser.add_argument("--metrics_results_path", type=str, help="Path to the file where attribution scores and experiment results (metrics) are stored.")
@@ -20,6 +26,7 @@ def parse_args():
     parser.add_argument("--pred_labels_results_path", type=str, help="Path to the file where the originally predicted verdicts are stored.")
     parser.add_argument("--use_longcite", action="store_true", help="Whether to use ContextPartitioner from LongCite model.")
     parser.add_argument("--attr_methods", type=str, nargs="+", choices=["context_cite_32", "context_cite_64", "context_cite_128", "context_cite_256", "semantic_similarity", "leave_one_out", "nli_post_hoc_naive", "nli_post_hoc_sliding_window_3", "nli_post_hoc_sliding_window_5", "nli_post_hoc_greedy_sampling", "llm_post_hoc", "longcite_llm_direct"], help="Which attribution method to use.")
+    parser.add_argument("--ks", type=int_or_str, nargs="+", help="Numbers k of how many source sentences to give the model for verification.")
     parser.add_argument("--model", type=str, choices=["Llama-3.1-8B-Instruct", "DeepSeek"])
     parser.add_argument("--add_additional_context", action="store_true", help="Whether to add additional context around the originally cited content.")
     parser.add_argument("--start_idx", type=int, default=0, help="Claim to start with")
@@ -219,7 +226,7 @@ def get_verification_preds(
     elif model_name == "deepseek-chat":
         
         response_veri = query_api_model(client, model_name, sys_prompt_veri, user_prompt_veri)
-        if not response_veri: # BadRequestError
+        if not response_veri: # e.g. BadRequestError
             return None
         verdict_pred_dist = get_pred_distribution_api_model(response_veri, verdict_label_tokens)
 
@@ -260,9 +267,6 @@ def main(config=None):
 
         # get (first) tokens for labels (class names) and yes/no
         verdict_label_tokens = get_label_tokens_api_model()
-
-    # TODO: add ks as cli argument later
-    ks = ["all", "cite"]
 
     # load or make verification results file
     verification_results_path = Path(config.verification_results_path)
@@ -327,7 +331,7 @@ def main(config=None):
         # compute predicted distributions for all other k and all attribution methods
         for attr_method in config.attr_methods:
             data_point_verification_results["pred_distributions"][attr_method] = {}
-            for k in ks:
+            for k in config.ks:
                 if k == "all":
                     verdict_pred_dist = verdict_pred_dist_baseline
                 else:
