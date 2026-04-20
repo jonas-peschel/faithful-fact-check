@@ -332,7 +332,7 @@ def main(config=None):
             y_gt = np.zeros(len(LABELS[:-1])).tolist()
             y_gt[LABELS[:-1].index(label)] = 1.0
         data_point_verification_results["ground_truth_distribution"] = y_gt
-        data_point_verification_results["pred_distributions"] = {}
+        data_point_verification_results.setdefault("pred_distributions", {})
 
         # compute predicted distributions for baseline k=all once per claim (does not have to be re-computed for all attribution methods)
         if config.model == "Llama-3.1-8B-Instruct":
