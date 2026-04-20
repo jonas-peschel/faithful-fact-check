@@ -345,7 +345,7 @@ def main(config=None):
 
         # compute predicted distributions for all other k and all attribution methods
         for attr_method in config.attr_methods:
-            data_point_verification_results["pred_distributions"][attr_method] = {}
+            data_point_verification_results["pred_distributions"].setdefault(attr_method, {})
             for k in config.ks:
                 if k == "all":
                     verdict_pred_dist = verdict_pred_dist_baseline
