@@ -340,12 +340,12 @@ def main(config=None):
                                                                    claim, pred_label, model_name, client=client, verdict_label_tokens=verdict_label_tokens)
             
                 # save the results (i.e., the predicted distribution)
-                if verdict_pred_dist:
+                if verdict_pred_dist is not None:
                     data_point_verification_results["pred_distributions"][attr_method][f"k={k}"] = {
                         "verdict_dist_3_classes": (verdict_pred_dist[:-1]/verdict_pred_dist[:-1].sum()).tolist(),
                         "verdict_dist_4_classes": verdict_pred_dist.tolist(),
                     }
-                elif not verdict_pred_dist:
+                elif verdict_pred_dist is None:
                     data_point_verification_results["pred_distributions"][attr_method][f"k={k}"] = {
                         "verdict_dist_3_classes": None,
                         "verdict_dist_4_classes": None,
