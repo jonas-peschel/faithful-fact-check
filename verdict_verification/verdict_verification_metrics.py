@@ -5,17 +5,18 @@ import re
 from numpy.typing import NDArray 
 from sklearn.metrics import mean_squared_error, cohen_kappa_score, classification_report
 
-def parse_args():
-    parser = argparse.ArgumentParser(description="Compute classification performance metrics for verdict verification experiment.")
-    parser.add_argument("--results_path", type=str, help="Path to the file where verdict verification experiment results are stored.")
-
-    return parser.parse_args()
-
 def int_or_str(value: str):
     try:
         return int(value)
     except ValueError:
         return value
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Compute classification performance metrics for verdict verification experiment.")
+    parser.add_argument("--results_path", type=str, help="Path to the file where verdict verification experiment results are stored.")
+    parser.add_argument("--attr_methods", type=str, nargs="+", choices=["context_cite_32", "context_cite_64", "context_cite_128", "context_cite_256", "semantic_similarity", "leave_one_out", "nli_post_hoc_naive", "nli_post_hoc_sliding_window_3", "nli_post_hoc_sliding_window_5", "nli_post_hoc_greedy_sampling", "llm_post_hoc", "longcite_llm_direct"], help="Which attribution method to use.")
+    parser.add_argument("--ks", type=int_or_str, nargs="+", help="Numbers k of how many source sentences to give the model for verification.")
+    return parser.parse_args()
 
 LABELS = ["Supported", "Conflicting Evidence/Cherrypicking", "Refuted", "Not Enough Evidence"]
 ABSTENTION_THRESH = 0.7
@@ -103,16 +104,11 @@ def main(config=None):
 
     results = load_json(config.results_path)
 
-    # get attribution methods & k values
-    attr_methods = list(results["results"][0]["pred_distributions"].keys())
-    ks = [int_or_str(re.match(pattern=r"k=(\w+)", string=key).group(1)) 
-          for key in list(results["results"][0]["pred_distributions"][attr_methods[0]].keys())]  # not really necessary I just realized but now I am going to keep it
-
     # compute metrics
-    results["metrics"] = {}
-    for attr_method in attr_methods:
-        results["metrics"][attr_method] = {}
-        for k in ks:
+    results.setdefault("metrics", {})
+    for attr_method in config.attr_methods:
+        results["metrics"].setdefault(attr_method, {})
+        for k in config.ks:
             cm_metrics, mse, kappa, mean_rps, rps_scores, abstention_info = calc_metrics(results, k, attr_method)
             results["metrics"][attr_method][f"k={k}"] = {
                 "abstention_info": abstention_info,
