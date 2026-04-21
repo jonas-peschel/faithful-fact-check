@@ -792,6 +792,7 @@ def main(config=None):
 
         except KeyboardInterrupt:
             print("\nKeyboard interrupt! Saving data...")
+            save_json(results_path, results)
             break
         except torch.cuda.OutOfMemoryError as e:
             print("Cuda out of memory error!")
