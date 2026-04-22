@@ -35,6 +35,7 @@ defined_datasets = [
     "averitec_web_evidence",
     "averitec_web_evidence_short_ans",
     "cnn_daily_mail",
+    "multifieldqa_en",
 ]
 
 datasets = args.datasets.split(',') if args.datasets else defined_datasets
