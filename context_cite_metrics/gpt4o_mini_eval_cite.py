@@ -156,7 +156,7 @@ def need_citation(question, answer, sentence, claim):
     prompt = need_citation_prompt_template.format(cat_qa_and_statement(question, answer, sentence, claim))
     for t in range(5):
         msg = [{'role': 'user', 'content': prompt}]
-        if ("averitec" in datasets or "averitec_short_ans" in datasets 
+        if ("averitec" in datasets or "averitec_short_ans" in datasets or "multifieldqa_en" in datasets 
             or "averitec_web_evidence" in datasets or "averitec_web_evidence_short_ans" in datasets):  # let the model generate analysis first for fact-checking data
             output = query_llm(msg, model=GPT_MODEL, temperature=0 if t == 0 else 1, max_new_tokens=512, stop=None, return_usage=True)
         else:
