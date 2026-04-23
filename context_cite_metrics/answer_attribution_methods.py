@@ -798,7 +798,6 @@ def main(config=None):
             print("Cuda out of memory error!")
             print(idx)
             print('-'*200)
-            data_point_results = {}  # make results for this data point invalid
             # cleanup
             del cc
             del model 
