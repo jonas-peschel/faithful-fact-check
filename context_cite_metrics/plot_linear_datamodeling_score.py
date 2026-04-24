@@ -58,7 +58,7 @@ def aggregate_lds(results, attr_methods):
     return mean_lds, sem_lds
 
 #--- Plotting Function ---#
-def plot_linear_datamodeling_score(mean_lds, sem_lds, labels, dataset_name, is_error_bars=False, title="Linear Datamodeling Score"):
+def plot_linear_datamodeling_score(mean_lds, sem_lds, labels, dataset_name, is_error_bars=False, title=None):
     """
     Plot bar plot of linear datamodeling score metric.
 
@@ -96,9 +96,9 @@ def plot_linear_datamodeling_score(mean_lds, sem_lds, labels, dataset_name, is_e
             rects = ax.bar(x+offset, mean, bar_width, label=label, edgecolor="white", linewidth=0.5, color=METH2COL[label])
         multiplier += 1
 
-    ax.set_title(title)
+    ax.set_title(title or DATASET2LABEL[dataset_name])
     ax.set_ylabel("Linear datamodeling score")
-    ax.set_xticks(x + bar_width*(mean_lds.shape[0]-1)/2, [DATASET2LABEL[dataset_name]])
+    ax.set_xticks([], [])
     ax.legend(bbox_to_anchor=(1.04, 0), loc="lower left", borderaxespad=0)  # place legend outside of plot
     ax.set_axisbelow(True)
     ax.grid(axis="y", linestyle="--", alpha=0.7)
