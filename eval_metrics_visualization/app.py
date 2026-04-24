@@ -1,5 +1,6 @@
 import streamlit as st 
 from pathlib import Path 
+import re
 from utils import load_json, get_attr_method, METH2LABEL
 
 #--- citation recall colors ---#
@@ -141,7 +142,6 @@ def process_text(text):
 def render_sidebar():
     app_path = Path(__file__).resolve()
     cc_metrics_results_dir = app_path.parent.parent / "context_cite_metrics/results"
-    eval_metrics_results_dir = app_path.parent.parent / "context_cite_metrics/results_final/averitec_short_ans"
 
     with st.sidebar:
         st.subheader("Settings")
@@ -158,6 +158,9 @@ def render_sidebar():
             cc_metrics_results_path = cc_metrics_results_dir / cc_metrics_results_file
 
         # eval metrics results folder 
+        dataset = re.search(pattern=r"results_([\w]+)_longcite.json", string=str(cc_metrics_results_file)).group(1)
+        eval_metrics_results_dir = app_path.parent.parent / f"context_cite_metrics/results_final/{dataset}"
+
         eval_metrics_results_path = None
         eval_metrics_results_file = st.selectbox(
             label="Evaluation metrics results file",
