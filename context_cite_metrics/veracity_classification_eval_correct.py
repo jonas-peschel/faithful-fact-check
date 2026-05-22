@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 matplotlib.use('Agg')
 import seaborn as sns
 from sklearn.metrics import classification_report, confusion_matrix, mean_squared_error, cohen_kappa_score 
-from utils import load_json, save_json
+from utils import load_json, save_json, DATASET2LABEL
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Evaluation of answer correctness via veracity classification performance for fact-checking datasets.")
@@ -29,7 +29,7 @@ def get_label_names_pretty(dataset_name):
 
     if (dataset_name == "averitec" or dataset_name == "averitec_short_ans" 
         or dataset_name == "averitec_web_evidence"  or dataset_name == "averitec_web_evidence_short_ans"):
-        return ['Supported', 'Refuted', 'Conflicting Evidence', 'Not Enough Evidence']
+        return ['SUP', 'REF', 'CONF', 'NEE']
 
 def main(config=None):
 
@@ -77,6 +77,13 @@ def main(config=None):
     kappa = cohen_kappa_score(y_true_ordinal, y_pred_ordinal, weights="quadratic")
 
     #--- confusion matrix ---#
+    plt.rcParams.update({
+        'font.size': 16,
+        'axes.labelsize': 14,
+        'xtick.labelsize': 14,
+        'ytick.labelsize': 14,
+    })
+
     LABELS = get_label_names_confusion_matrix(dataset_name)
     LABELS_PRETTY = get_label_names_pretty(dataset_name)
     label_to_idx = {l: i for i, l in enumerate(LABELS)}
@@ -99,7 +106,7 @@ def main(config=None):
     annot = np.array(annot)
 
     # plot
-    fig, ax = plt.subplots() 
+    fig, ax = plt.subplots(figsize=(7,7)) 
     sns.heatmap(
         cm_normalized,
         annot=annot, 
@@ -110,14 +117,17 @@ def main(config=None):
         xticklabels=LABELS_PRETTY,
         yticklabels=LABELS_PRETTY,
         ax=ax,
+        cbar=False,
+        linewidth=0.5, 
     )
-    ax.set_xlabel("Predicted Label")
-    ax.set_ylabel("True Label")
-    ax.set_xticklabels(ax.get_xticklabels(), rotation=45, ha="right", fontsize=9)
-    ax.set_yticklabels(ax.get_yticklabels(), rotation=0, fontsize=9)
+    ax.set_xlabel("\nPredicted Label")
+    ax.set_ylabel("True Label\n")
+    ax.set_xticklabels(ax.get_xticklabels(), rotation=0, ha="center")
+    ax.set_yticklabels(ax.get_yticklabels(), rotation=0)
+    ax.set_title(DATASET2LABEL[dataset_name])
 
     # save plot
-    plot_save_path = f"plots/confusion_matrix_{dataset_name}.png"
+    plot_save_path = f"plots/confusion_matrix_{dataset_name}.pdf"
     fig.savefig(plot_save_path, bbox_inches="tight")
     print(f"Saved confusion matrix to: {plot_save_path}")
 
