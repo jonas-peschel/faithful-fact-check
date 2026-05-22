@@ -275,9 +275,9 @@ METH2LABEL = {
 DATASET2LABEL = {
     "cnn_daily_mail": "CNN DailyMail",
     "averitec": "AVeriTeC (gold evidence)",
-    "averitec_short_ans": "AVeriTeC (gold evidence, short answers)",
+    "averitec_short_ans": "AVeriTeC (gold evidence, short justifications)",
     "averitec_web_evidence": "AVeriTeC (retrieved evidence)", 
-    "averitec_web_evidence_short_ans": "AVeriTeC (retrieved evidence, short answers)",
+    "averitec_web_evidence_short_ans": "AVeriTeC (retrieved evidence, short justifications)",
 }
 
 DESIRED_LABEL_ORDER = ["context_cite_256", "context_cite_128", "context_cite_64", "context_cite_32", "leave_one_out", 
