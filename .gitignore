@@ -232,6 +232,7 @@ context_cite_metrics/scores_correct
 context_cite_metrics/*.ipynb
 custom_averitec_dataset/*.ipynb
 custom_averitec_dataset/data
+custom_averitec_dataset/pipeline_scripts/evidence_retrieval_async.py
 verdict_verification/*.ipynb
 verdict_verification/results/
 verdict_verification/verdict_verification_old.py 
