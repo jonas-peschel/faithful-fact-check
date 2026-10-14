@@ -1,5 +1,6 @@
 import json 
 import streamlit as st
+from huggingface_hub import hf_hub_download 
 
 #--- citation recall colors ---#
 SUPPORTED_COLOR = "#c8f7c5"
@@ -97,6 +98,19 @@ def get_mapping_spans2cite_strs(results):
         span2citestr[key] = f"[{i}]"
 
     return span2citestr
+
+HF_REPO = "jonaspeschel/fact-checking-attribution-results"
+
+@st.cache_data
+def load_json_from_hub(path_in_repo):
+    local_path = hf_hub_download(
+        repo_id=HF_REPO,
+        filename=path_in_repo,
+        repo_type="dataset",
+        token=st.secrets.get("HF_TOKEN"),
+    )
+    return load_json(local_path)
+
 
 # hand-picked feature examples to display as the first examples in the app
 FEATURED_EXAMPLE_IDXS = [14, 15, 11, 22, 19, 12, 0, 5, 18, 34]

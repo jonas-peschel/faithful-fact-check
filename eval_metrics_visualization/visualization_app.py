@@ -2,8 +2,9 @@ import streamlit as st
 from pathlib import Path 
 import re
 import math
+import json 
 from urllib.parse import urlparse, quote
-from utils import load_json, get_attr_method, METH2LABEL, LABEL2METH, FEATURED_EXAMPLE_IDXS, get_order_with_featured_examples, process_text, get_mapping_spans2cite_strs, show_explanations, SUPPORTED_COLOR, PARTIAL_SUPPORT_COLOR, UNSUPPORTED_COLOR, SUPPORT_SCORE2COLOR, RELEVANT_COLOR, IRRELEVANT_COLOR, RELEVANT_SCORE2COLOR
+from utils import load_json, get_attr_method, METH2LABEL, LABEL2METH, FEATURED_EXAMPLE_IDXS, get_order_with_featured_examples, process_text, get_mapping_spans2cite_strs, show_explanations, SUPPORTED_COLOR, PARTIAL_SUPPORT_COLOR, UNSUPPORTED_COLOR, SUPPORT_SCORE2COLOR, RELEVANT_COLOR, IRRELEVANT_COLOR, RELEVANT_SCORE2COLOR, load_json_from_hub
 
 #### CSS #### 
 background_color = "#FFFFFF"
@@ -147,8 +148,6 @@ st.html(f"<style>{css_highlighting}</style>")
 #### CSS END #### 
 
 def render_sidebar():
-    app_path = Path(__file__).resolve()
-
     n_claims = 234 # hard-coded ._.
 
     with st.sidebar:
@@ -161,10 +160,8 @@ def render_sidebar():
             index=0,
         )
         dataset = "averitec" if evidence_type == "Gold evidence" else "averitec_web_evidence"
-        cc_metrics_results_dir = app_path.parent.parent / "context_cite_metrics/results"
-        cc_metrics_results_path = cc_metrics_results_dir / f"results_{dataset}_longcite.json"
+        cc_metrics_results_path = f"results/results_{dataset}_longcite.json"
         
-
         # attribution method
         attr_method_name = st.radio(
             label="Attribution method",
@@ -174,8 +171,7 @@ def render_sidebar():
                      "Post-hoc attribution (Semantic similarity)"],
             index=0,
         )
-        eval_metrics_results_dir = app_path.parent.parent / f"context_cite_metrics/results_final/{dataset}"
-        eval_metrics_results_path = eval_metrics_results_dir / f"LongCite-llama3.1-8b_{LABEL2METH[attr_method_name]}_{dataset}_deepseek-chat.json"
+        eval_metrics_results_path = f"results_final/{dataset}/LongCite-llama3.1-8b_{LABEL2METH[attr_method_name]}_{dataset}_deepseek-chat.json"
 
         # claim index
         pos = st.number_input(
@@ -477,8 +473,8 @@ def main():
 
     # get settings
     cc_metrics_results_path, eval_metrics_results_path, idx, attr_method_name = render_sidebar()
-    eval_metrics_results = load_json(eval_metrics_results_path)[idx]
-    cc_metrics_results_all_methods = load_json(cc_metrics_results_path)["results"][idx]
+    eval_metrics_results = load_json_from_hub(eval_metrics_results_path)[idx]
+    cc_metrics_results_all_methods = load_json_from_hub(cc_metrics_results_path)["results"][idx]
 
     attr_method = get_attr_method(str(eval_metrics_results_path))
     st.subheader(f"Attribution method: {attr_method_name}")
