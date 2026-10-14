@@ -1,1 +1,1 @@
-# Faithful Fact-Checking
+# Faithfulness and correctness of RAG attributions for automated fact-checking
