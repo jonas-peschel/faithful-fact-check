@@ -1,2 +1,2 @@
-huggingface_hub~=0.31.4
-streamlit~=1.46.1
+huggingface_hub==0.31.4
+streamlit==1.46.1
