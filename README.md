@@ -1,7 +1,7 @@
 # Faithfulness and correctness of RAG attributions for automated fact-checking
 
 Code for my Master's thesis <br>
-*"Explaining Retrieval-Augmented Generation: Faithful Answer Attribution for Automated Fact-Checking"* 
+*"Explaining Retrieval-Augmented Generation: Faithful Answer Attribution for Automated Fact-Checking"* <br>
 at Technische Universität Berlin, Quality & Usability Lab, 2026 <br>
 First Supervisor: Prof. Sebastian Möller, Second Supervisor: Prof. Axel Küpper <br>
 Additional Supervisors: Charlott Jakob, Nils Feldhus
