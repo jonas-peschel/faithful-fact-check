@@ -16,10 +16,6 @@ Retrieval-augmented LLMs are prominently used for automated fact-checking to gen
 
 Explore the attributions and their correctness and faithfulness interactively!
 
-<!-- 
-- 🤗 Experiment results: [jonaspeschel/fact-checking-attribution-results](https://huggingface.co/datasets/jonaspeschel/fact-checking-attribution-results)
-- 🤗 Datasets: [AVeriTeC with scraped gold evidence](https://huggingface.co/datasets/jonaspeschel/AVeriTeC-with-scraped-gold-evidence), [AVeriTeC with custom web evidence](https://huggingface.co/datasets/jonaspeschel/AVeriTeC-with-scraped-web-evidence), [MultiFieldQA-en](https://huggingface.co/datasets/jonaspeschel/MultiFieldQA-en) -->
-
 ## Repository structure
 
 ```
